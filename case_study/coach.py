@@ -166,13 +166,9 @@ def provide_feedback(stage: str, content: Iterable[str] | str) -> CoachFeedback:
 
 def _gemini_feedback(stage: str, texts: list[str]) -> CoachFeedback:
     """Call Gemini 3.1 Flash Lite and parse the structured response."""
-    import google.generativeai as genai
+    from google import genai
 
-    genai.configure(api_key=_GEMINI_API_KEY)
-    model = genai.GenerativeModel(
-        "gemini-3.1-flash-lite",
-        system_instruction=SYSTEM_PROMPT,
-    )
+    client = genai.Client(api_key=_GEMINI_API_KEY)
 
     # Resolve stage key for criteria lookup
     key_aliases = {"analyze": "analyses", "update": "updates", "conclude": "conclusion"}
@@ -181,13 +177,17 @@ def _gemini_feedback(stage: str, texts: list[str]) -> CoachFeedback:
 
     user_input = "\n".join(texts) if len(texts) > 1 else texts[0]
     prompt = (
+        f"{SYSTEM_PROMPT}\n\n"
         f"Stage: {stage}\n\n"
         f"Passing criteria for this stage:\n{criteria}\n\n"
         f"User's response:\n{user_input}\n\n"
         "Evaluate the response and provide your coaching feedback as JSON."
     )
 
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model="gemini-3.1-flash-lite-preview",
+        contents=prompt,
+    )
     raw = response.text.strip()
 
     # Strip markdown fences if the model wraps its response
