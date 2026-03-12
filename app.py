@@ -561,19 +561,10 @@ def render_session():
         )
     st.markdown(STAGE_DESCRIPTIONS.get(stage_name, ""))
 
-    # Frameworks reference for frame/structure stages
+    # Framework selection for frame/structure stages
     if spec.offer_frameworks:
-        frameworks = load_frameworks()
-        if frameworks:
-            with st.expander("View available business frameworks"):
-                for fw in frameworks:
-                    st.markdown(f"**{fw['name']}** ({fw['full_name']})")
-                    st.caption(fw["description"])
-                    st.markdown(f"*Best for: {', '.join(_display_name(t) for t in fw.get('best_for', []))}*")
-                    st.divider()
-
-    # Input
-    if spec.multi:
+        _render_framework_input(stage_name)
+    elif spec.multi:
         _render_multi_input(stage_name, spec.item_name, stage_idx)
     else:
         _render_single_input(stage_name, stage_idx)
@@ -596,6 +587,54 @@ def _render_previous_response(stage_name: str):
             if fb:
                 st.markdown("**Coach feedback on this response:**")
                 _render_feedback_display(fb)
+
+
+def _render_framework_input(stage_name: str):
+    """Render framework selection + explanation for frame/structure stages."""
+    _render_previous_response(stage_name)
+    frameworks = load_frameworks()
+
+    if frameworks:
+        fw_options = [f"{fw['name']} — {fw['full_name']}" for fw in frameworks]
+        selected = st.multiselect(
+            "Select framework(s):",
+            options=fw_options,
+            key=f"fw_select_{stage_name}",
+            placeholder="Choose one or more frameworks...",
+        )
+
+        # Show descriptions for selected frameworks
+        if selected:
+            for choice in selected:
+                fw_name = choice.split(" — ")[0]
+                fw = next((f for f in frameworks if f["name"] == fw_name), None)
+                if fw:
+                    st.caption(f"**{fw['name']}:** {fw['description']}")
+    else:
+        selected = []
+
+    explanation = st.text_area(
+        "Explain how you'll apply the selected framework(s) to this problem:",
+        key=f"fw_explain_{stage_name}",
+        height=150,
+        placeholder="Why did you choose this framework? What are the key areas you'll analyze?",
+    )
+
+    if st.button("Submit", key=f"submit_{stage_name}"):
+        if not selected:
+            st.error("Please select at least one framework.")
+            return
+        if not explanation or len(explanation.strip()) < 10:
+            st.error("Please explain how you'll apply the framework(s).")
+            return
+
+        # Build the combined response
+        fw_names = [s.split(" — ")[0] for s in selected]
+        response = f"Frameworks: {', '.join(fw_names)}\n\n{explanation.strip()}"
+
+        setattr(st.session_state.session, stage_name, response)
+        save_session()
+        _after_stage_submit(stage_name, response)
 
 
 def _render_single_input(stage_name: str, stage_idx: int):
