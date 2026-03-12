@@ -13,6 +13,7 @@ def test_feedback_for_all_stages():
     stages = [
         "restatement", "frame", "assumptions", "hypotheses",
         "analyses", "updates", "conclusion", "additional_insights",
+        "structure", "setup", "calculation", "sanity_check", "sensitivity",
     ]
     for stage in stages:
         fb = provide_feedback(stage, "Some input text here.")
@@ -50,6 +51,7 @@ def test_heuristic_feedback_all_stages_pass():
     stages = [
         "restatement", "frame", "assumptions", "hypotheses",
         "analyses", "updates", "conclusion", "additional_insights",
+        "structure", "setup", "calculation", "sanity_check", "sensitivity",
     ]
     for stage in stages:
         fb = provide_feedback(stage, "Some input text here.")

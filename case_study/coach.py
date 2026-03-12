@@ -66,6 +66,31 @@ STAGE_CRITERIA: dict[str, str] = {
         "second-order effects, or adjacent opportunities, "
         "(3) show business judgment. Generic or shallow responses = not passed."
     ),
+    "structure": (
+        "The user must: (1) identify the key components or segments of the estimation, "
+        "(2) explain a logical top-down or bottom-up approach, (3) outline what they "
+        "will calculate in each step. Unstructured or missing decomposition = not passed."
+    ),
+    "setup": (
+        "The user must: (1) clearly state what quantity they are solving for, "
+        "(2) identify the key variables and relationships, (3) outline their calculation "
+        "approach step by step. Jumping to numbers without structure = not passed."
+    ),
+    "calculation": (
+        "The user must: (1) show each calculation step explicitly, "
+        "(2) use their stated assumptions consistently, (3) arrive at a clear numeric result. "
+        "Skipped steps or arithmetic errors = not passed."
+    ),
+    "sanity_check": (
+        "The user must: (1) compare their estimate to a known benchmark or alternative approach, "
+        "(2) assess whether the magnitude is reasonable, (3) note what would change the answer "
+        "most. Skipping the cross-check or accepting an unreasonable number = not passed."
+    ),
+    "sensitivity": (
+        "The user must: (1) identify the 2-3 assumptions with the largest impact on the result, "
+        "(2) show how varying those assumptions changes the output, (3) discuss the range of "
+        "plausible outcomes. Ignoring key drivers or only testing one variable = not passed."
+    ),
 }
 
 SYSTEM_PROMPT = """\
@@ -272,6 +297,31 @@ def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
             "competitive responses, organizational challenges, or adjacent opportunities the client should explore. "
             "Strong candidates show business judgment by surfacing issues the interviewer didn't explicitly raise."
         ),
+        "structure": (
+            "Have you clearly decomposed the problem into components? Check that your approach "
+            "is either top-down or bottom-up and covers all major segments. Consider whether "
+            "there are alternative structures that might capture more of the market."
+        ),
+        "setup": (
+            "Have you clearly identified the key variables and their relationships? "
+            "Check that your approach is structured before diving into calculations. "
+            "Consider whether you've identified all the relevant data from the case."
+        ),
+        "calculation": (
+            "Check each step of your calculation for consistency with your assumptions. "
+            "Are your units correct throughout? Have you clearly shown your work so "
+            "the interviewer can follow your reasoning?"
+        ),
+        "sanity_check": (
+            "Does your final number pass the smell test? Try approaching the problem from "
+            "a completely different angle to see if you get a similar magnitude. "
+            "Consider per-capita, per-household, or percentage-of-GDP checks."
+        ),
+        "sensitivity": (
+            "Which assumptions drive the largest changes in your result? "
+            "Have you tested what happens when key inputs vary by +/- 50%? "
+            "Consider which variables are most uncertain and most impactful."
+        ),
     }
     key_aliases = {"analyze": "analyses", "update": "updates", "conclude": "conclusion"}
     resolved_key = key_aliases.get(stage_key, stage_key)
@@ -315,6 +365,26 @@ def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
             "What could go wrong with your recommendation? How might competitors react? "
             "Are there regulatory, cultural, or organizational barriers to consider? "
             "What would you recommend the client monitor over the next 6-12 months?"
+        ),
+        "structure": (
+            "Could you approach this estimation from a different angle (e.g., supply-side vs. demand-side)? "
+            "Are there market segments you might be overlooking?"
+        ),
+        "setup": (
+            "Have you identified all the variables you need? "
+            "Is there a simpler way to set up the calculation that reduces the chance of error?"
+        ),
+        "calculation": (
+            "Can you verify any intermediate results against known data points? "
+            "Are there any shortcuts or approximations that could simplify your math?"
+        ),
+        "sanity_check": (
+            "How does your estimate compare to publicly available data or industry benchmarks? "
+            "What is the biggest source of uncertainty in your estimate?"
+        ),
+        "sensitivity": (
+            "If the most uncertain assumption is off by 2x, does your conclusion change? "
+            "Which variable would you want to research first to narrow the range?"
         ),
     }
     questions = questions_map.get(

@@ -11,24 +11,35 @@ from pathlib import Path
 
 from case_study import cases, coach, validation
 from case_study.session import Session, list_sessions
-from case_study.engine import STAGES, load_frameworks
+from case_study.engine import (
+    STAGES_BY_CATEGORY,
+    StageSpec,
+    get_stages_for_category,
+    load_frameworks,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-STAGE_LABELS = {
-    "restatement": "1. Restatement",
-    "frame": "2. Frame",
-    "assumptions": "3. Assumptions",
-    "hypotheses": "4. Hypotheses",
-    "analyses": "5. Analyses",
-    "updates": "6. Updates",
-    "conclusion": "7. Conclusion",
-    "additional_insights": "8. Additional Insights",
+# Display names for all stages across all categories
+STAGE_DISPLAY_NAMES: dict[str, str] = {
+    "restatement": "Restatement",
+    "frame": "Frame",
+    "assumptions": "Assumptions",
+    "hypotheses": "Hypotheses",
+    "analyses": "Analyses",
+    "updates": "Updates",
+    "conclusion": "Conclusion",
+    "additional_insights": "Additional Insights",
+    "structure": "Structure",
+    "setup": "Setup",
+    "calculation": "Calculation",
+    "sanity_check": "Sanity Check",
+    "sensitivity": "Sensitivity",
 }
 
-STAGE_DESCRIPTIONS = {
+STAGE_DESCRIPTIONS: dict[str, str] = {
     "restatement": "Restate the problem in your own words. This confirms your understanding and highlights any clarifying questions.",
     "frame": "How would you structure this problem? Which framework(s) will you use?",
     "assumptions": "State and justify your key assumptions before proceeding. e.g., 'I assume US population of 330M'.",
@@ -37,6 +48,11 @@ STAGE_DESCRIPTIONS = {
     "updates": "How do your hypotheses change based on your analysis?",
     "conclusion": "What is your recommendation?",
     "additional_insights": "Go beyond the case: what additional considerations, risks, or opportunities should the client think about?",
+    "structure": "Break the problem into logical components. Choose a top-down or bottom-up approach and outline the key segments.",
+    "setup": "Set up the problem: what are you solving for, what are the key variables, and what is your calculation approach?",
+    "calculation": "Work through your calculations step by step, showing your work clearly.",
+    "sanity_check": "Sanity-check your estimate. Does it pass the smell test? Try an alternative approach to verify.",
+    "sensitivity": "Which assumptions most affect your answer? How sensitive is the result to changes in key inputs?",
 }
 
 # ---------------------------------------------------------------------------
@@ -162,25 +178,47 @@ CUSTOM_CSS = """
 def _display_name(raw: str) -> str:
     """Convert an underscore-separated ID into a readable title.
 
-    e.g. 'bank_growth_001' -> 'Bank Growth 001'
+    e.g. 'bank_growth' -> 'Bank Growth'
          'additional_insights' -> 'Additional Insights'
     """
     return raw.replace("_", " ").title()
 
 
-def get_stage_spec(name: str):
+def _get_active_stages() -> tuple[StageSpec, ...]:
+    """Return the stages tuple for the current session's category."""
+    case = st.session_state.get("selected_case")
+    if case:
+        category = case.get("category", "strategy")
+    else:
+        sess = st.session_state.get("session")
+        category = getattr(sess, "category", "strategy") if sess else "strategy"
+    return get_stages_for_category(category)
+
+
+def _stage_label(stage_name: str, stages: tuple[StageSpec, ...] | None = None) -> str:
+    """Return a numbered label like '1. Restatement' for the given stage."""
+    if stages is None:
+        stages = _get_active_stages()
+    for i, s in enumerate(stages):
+        if s.name == stage_name:
+            return f"{i + 1}. {STAGE_DISPLAY_NAMES.get(stage_name, _display_name(stage_name))}"
+    return STAGE_DISPLAY_NAMES.get(stage_name, _display_name(stage_name))
+
+
+def get_stage_spec(name: str) -> StageSpec:
     """Return the StageSpec for the given stage name."""
-    return next(s for s in STAGES if s.name == name)
+    return next(s for s in _get_active_stages() if s.name == name)
 
 
 def current_stage_index() -> int:
-    """Return the index of the first incomplete stage, or len(STAGES) if all done."""
+    """Return the index of the first incomplete stage, or total if all done."""
     sess = st.session_state.session
-    for i, spec in enumerate(STAGES):
+    stages = _get_active_stages()
+    for i, spec in enumerate(stages):
         val = getattr(sess, spec.name)
         if val is None or val == "" or val == []:
             return i
-    return len(STAGES)
+    return len(stages)
 
 
 def save_session():
@@ -313,14 +351,16 @@ def render_case_selection():
                 st.markdown("**Context preview:**")
                 _render_case_context(case["context"][:300] + ("..." if len(case.get("context", "")) > 300 else ""))
             if st.button("Start this case", key=f"start_{case['id']}"):
-                sess = Session.new(case["id"])
+                category = case.get("category", "strategy")
+                sess = Session.new(case["id"], category=category)
                 st.session_state.session = sess
                 st.session_state.selected_case = case
                 st.session_state.active_stage = 0
                 st.session_state.page = "session"
                 st.session_state.timer_start = time.time()
-                # Initialize attempt counters
-                for spec in STAGES:
+                # Initialize attempt counters for this category's stages
+                stages = get_stages_for_category(category)
+                for spec in stages:
                     st.session_state[f"attempts_{spec.name}"] = 1
                 save_session()
                 st.rerun()
@@ -332,9 +372,10 @@ def render_case_selection():
 
 
 def render_session_review():
-    """Show a full summary report after all 8 stages are complete."""
+    """Show a full summary report after all stages are complete."""
     sess = st.session_state.session
     case = st.session_state.selected_case
+    stages = _get_active_stages()
 
     st.markdown(
         '<div class="main-header">'
@@ -353,9 +394,9 @@ def render_session_review():
     st.markdown("---")
 
     # Report: each stage
-    for spec in STAGES:
+    for spec in stages:
         val = getattr(sess, spec.name)
-        label = STAGE_LABELS[spec.name]
+        label = _stage_label(spec.name, stages)
 
         st.markdown(
             f'<div class="report-section"><h4>{label}</h4>',
@@ -394,6 +435,7 @@ def render_session_review():
 def render_session():
     sess = st.session_state.session
     case = st.session_state.selected_case
+    stages = _get_active_stages()
     stage_idx = current_stage_index()
 
     # Header
@@ -409,16 +451,16 @@ def render_session():
             _render_case_context(case["context"])
 
     # Progress
-    total = len(STAGES)
+    total = len(stages)
     st.progress(stage_idx / total, text=f"Progress: {stage_idx}/{total} stages complete")
 
     # Show completed stages (most recent one expanded)
     for i in range(stage_idx):
-        spec = STAGES[i]
+        spec = stages[i]
         val = getattr(sess, spec.name)
         is_most_recent = i == stage_idx - 1
         attempt_count = st.session_state.get(f"attempts_{spec.name}", 1)
-        label = f"{STAGE_LABELS[spec.name]} (completed)"
+        label = f"{_stage_label(spec.name, stages)} (completed)"
         if attempt_count > 1:
             label += f"  -- Attempt {attempt_count}"
         with st.expander(label, expanded=is_most_recent):
@@ -434,23 +476,21 @@ def render_session():
         return
 
     # Current stage
-    spec = STAGES[stage_idx]
+    spec = stages[stage_idx]
     stage_name = spec.name
 
     # Stage header with attempt badge
     attempt_count = st.session_state.get(f"attempts_{stage_name}", 1)
-    header_html = f'<span class="stage-header">{STAGE_LABELS[stage_name]}</span>'
-    if attempt_count > 1:
-        header_html += f' <span class="attempt-badge">Attempt {attempt_count}</span>'
-    st.markdown(f"### {STAGE_LABELS[stage_name]}")
+    label = _stage_label(stage_name, stages)
+    st.markdown(f"### {label}")
     if attempt_count > 1:
         st.markdown(
             f'<span class="attempt-badge">Attempt {attempt_count}</span>',
             unsafe_allow_html=True,
         )
-    st.markdown(STAGE_DESCRIPTIONS[stage_name])
+    st.markdown(STAGE_DESCRIPTIONS.get(stage_name, ""))
 
-    # Frameworks reference for frame stage
+    # Frameworks reference for frame/structure stages
     if spec.offer_frameworks:
         frameworks = load_frameworks()
         if frameworks:
@@ -472,7 +512,7 @@ def _render_single_input(stage_name: str, stage_idx: int):
     """Render a text area for a single-response stage."""
     text_key = f"input_{stage_name}"
     response = st.text_area(
-        f"Your {_display_name(stage_name)}:",
+        f"Your {STAGE_DISPLAY_NAMES.get(stage_name, _display_name(stage_name))}:",
         key=text_key,
         height=200,
         placeholder="Type your response here...",
@@ -539,7 +579,8 @@ def _render_multi_input(stage_name: str, item_name: str, stage_idx: int):
                 st.rerun()
 
     with col2:
-        if items and st.button(f"Done with {_display_name(stage_name)}", key=f"done_{stage_name}"):
+        display = STAGE_DISPLAY_NAMES.get(stage_name, _display_name(stage_name))
+        if items and st.button(f"Done with {display}", key=f"done_{stage_name}"):
             setattr(st.session_state.session, stage_name, list(items))
             save_session()
             _after_stage_submit(stage_name, items)
@@ -575,10 +616,10 @@ def _full_reset():
     """Clear all session-related keys for a fresh start."""
     for key in ["session", "selected_case", "active_stage", "page", "timer_start"]:
         st.session_state.pop(key, None)
-    # Clear attempt counters
-    for spec in STAGES:
-        st.session_state.pop(f"attempts_{spec.name}", None)
-        st.session_state.pop(f"feedback_history_{spec.name}", None)
+    # Clear attempt counters and feedback for ALL possible stages
+    for stage_name in STAGE_DISPLAY_NAMES:
+        st.session_state.pop(f"attempts_{stage_name}", None)
+        st.session_state.pop(f"feedback_history_{stage_name}", None)
     _clear_stage_input_keys()
 
 
@@ -591,8 +632,9 @@ def render_coach_feedback():
     coach disabled, the user always advances.
     """
     ai_gating = st.session_state.get("coach_enabled", False) and coach.is_ai_enabled()
+    stages = _get_active_stages()
 
-    for spec in STAGES:
+    for spec in stages:
         submitted_key = f"submitted_{spec.name}"
         if not st.session_state.get(submitted_key):
             continue
@@ -642,7 +684,8 @@ def render_coach_feedback():
             return True
 
         # --- Optional coach mode (heuristic or no API key) ---
-        st.success(f"Stage '{_display_name(spec.name)}' saved.")
+        display = STAGE_DISPLAY_NAMES.get(spec.name, _display_name(spec.name))
+        st.success(f"Stage '{display}' saved.")
         if coach_enabled:
             if feedback_key not in st.session_state:
                 if st.button("Get Coach Feedback", key=f"coach_btn_{spec.name}"):
@@ -747,7 +790,7 @@ def _resume_session(filepath: Path):
             "id": sess.case_id,
             "prompt": f"Case {sess.case_id}",
             "context": "",
-            "category": "unknown",
+            "category": getattr(sess, "category", "strategy"),
             "difficulty": "unknown",
         }
     st.session_state.session = sess
@@ -756,8 +799,9 @@ def _resume_session(filepath: Path):
     st.session_state.page = "session"
     # Set timer start to now for resumed sessions
     st.session_state.timer_start = time.time()
-    # Initialize attempt counters for resumed session
-    for spec in STAGES:
+    # Initialize attempt counters for this category's stages
+    stages = _get_active_stages()
+    for spec in stages:
         if f"attempts_{spec.name}" not in st.session_state:
             st.session_state[f"attempts_{spec.name}"] = 1
     _clear_stage_input_keys()

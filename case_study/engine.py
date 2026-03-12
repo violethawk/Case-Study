@@ -1,9 +1,10 @@
 """
 Core logic for running a case study session.
 
-The engine orchestrates the user through the eight stages of the
-reasoning loop: Restate → Frame → Assumptions → Hypothesize →
-Analyze → Update → Conclude → Additional Insights.
+The engine orchestrates the user through a category-specific sequence
+of reasoning stages.  Strategy cases use the full 8-stage loop, while
+market-sizing and quantitative cases follow tailored shorter flows.
+
 It interacts with the CLI, prompts for user input, validates
 responses, optionally invokes the AI coach, and persists the session
 state after each stage.
@@ -39,70 +40,156 @@ class StageSpec:
     offer_frameworks: bool = False
 
 
-STAGES: tuple[StageSpec, ...] = (
-    StageSpec(
-        name="restatement",
-        prompt="Restate the problem:\n> ",
-        preamble=(
-            "Before diving in, restate the problem in your own words.",
-            "This confirms your understanding and highlights any clarifying questions.",
-        ),
-    ),
-    StageSpec(
-        name="frame",
-        prompt="How would you structure this problem? Which framework(s) will you use?\n> ",
-        offer_frameworks=True,
-    ),
-    StageSpec(
-        name="assumptions",
-        prompt="",
-        multi=True,
-        item_name="Assumption",
-        preamble=(
-            "State and justify your key assumptions before proceeding.",
-            "e.g., 'I assume US population of 330M' or 'I assume no competitor response in year 1.'",
-        ),
-    ),
-    StageSpec(
-        name="hypotheses",
-        prompt="",
-        multi=True,
-        item_name="Hypothesis",
-        preamble=("Enter one possible explanation or strategic path.",),
-    ),
-    StageSpec(
-        name="analyses",
-        prompt="",
-        multi=True,
-        item_name="Analysis",
-        preamble=("What analysis would you perform?",),
-    ),
-    StageSpec(
-        name="updates",
-        prompt="",
-        multi=True,
-        item_name="Update",
-        preamble=("How do your hypotheses change based on your analysis?",),
-    ),
-    StageSpec(
-        name="conclusion",
-        prompt="What is your recommendation?\n> ",
-    ),
-    StageSpec(
-        name="additional_insights",
-        prompt="Additional insights:\n> ",
-        preamble=(
-            "Go beyond the case: what additional considerations, risks, or opportunities",
-            "should the client think about that were not directly asked?",
-        ),
+# ---- Individual stage specs ------------------------------------------------
+
+_restatement = StageSpec(
+    name="restatement",
+    prompt="Restate the problem:\n> ",
+    preamble=(
+        "Before diving in, restate the problem in your own words.",
+        "This confirms your understanding and highlights any clarifying questions.",
     ),
 )
 
+_frame = StageSpec(
+    name="frame",
+    prompt="How would you structure this problem? Which framework(s) will you use?\n> ",
+    offer_frameworks=True,
+)
+
+_assumptions = StageSpec(
+    name="assumptions",
+    prompt="",
+    multi=True,
+    item_name="Assumption",
+    preamble=(
+        "State and justify your key assumptions before proceeding.",
+        "e.g., 'I assume US population of 330M' or 'I assume no competitor response in year 1.'",
+    ),
+)
+
+_hypotheses = StageSpec(
+    name="hypotheses",
+    prompt="",
+    multi=True,
+    item_name="Hypothesis",
+    preamble=("Enter one possible explanation or strategic path.",),
+)
+
+_analyses = StageSpec(
+    name="analyses",
+    prompt="",
+    multi=True,
+    item_name="Analysis",
+    preamble=("What analysis would you perform?",),
+)
+
+_updates = StageSpec(
+    name="updates",
+    prompt="",
+    multi=True,
+    item_name="Update",
+    preamble=("How do your hypotheses change based on your analysis?",),
+)
+
+_conclusion = StageSpec(
+    name="conclusion",
+    prompt="What is your recommendation?\n> ",
+)
+
+_additional_insights = StageSpec(
+    name="additional_insights",
+    prompt="Additional insights:\n> ",
+    preamble=(
+        "Go beyond the case: what additional considerations, risks, or opportunities",
+        "should the client think about that were not directly asked?",
+    ),
+)
+
+_structure = StageSpec(
+    name="structure",
+    prompt="How will you structure this estimation? Break it into components:\n> ",
+    offer_frameworks=True,
+    preamble=(
+        "Before calculating, decompose the problem into logical components.",
+        "Choose a top-down or bottom-up approach and outline the key segments.",
+    ),
+)
+
+_setup = StageSpec(
+    name="setup",
+    prompt="Set up the problem: what are you solving for and what is your approach?\n> ",
+    preamble=(
+        "Clearly define what quantity you are solving for.",
+        "Identify the key variables, relationships, and your calculation approach.",
+    ),
+)
+
+_calculation = StageSpec(
+    name="calculation",
+    prompt="",
+    multi=True,
+    item_name="Calculation Step",
+    preamble=(
+        "Work through your calculations step by step.",
+        "Show your work clearly so the interviewer can follow your reasoning.",
+    ),
+)
+
+_sanity_check = StageSpec(
+    name="sanity_check",
+    prompt="Sanity-check your estimate. Does it pass the smell test?\n> ",
+    preamble=(
+        "Compare your result to a known benchmark or try an alternative approach.",
+        "Assess whether the magnitude is reasonable.",
+    ),
+)
+
+_sensitivity = StageSpec(
+    name="sensitivity",
+    prompt="Which assumptions most affect your answer? How sensitive is the result?\n> ",
+    preamble=(
+        "Identify the 2-3 assumptions with the largest impact on your result.",
+        "Show how varying them changes the output and discuss the range of outcomes.",
+    ),
+)
+
+# ---- Category-specific stage sequences ------------------------------------
+
+STRATEGY_STAGES: tuple[StageSpec, ...] = (
+    _restatement, _frame, _assumptions, _hypotheses,
+    _analyses, _updates, _conclusion, _additional_insights,
+)
+
+MARKET_SIZING_STAGES: tuple[StageSpec, ...] = (
+    _restatement, _structure, _assumptions,
+    _calculation, _sanity_check, _conclusion,
+)
+
+QUANTITATIVE_STAGES: tuple[StageSpec, ...] = (
+    _restatement, _setup, _assumptions,
+    _calculation, _sensitivity, _conclusion,
+)
+
+STAGES_BY_CATEGORY: dict[str, tuple[StageSpec, ...]] = {
+    "strategy": STRATEGY_STAGES,
+    "market-sizing": MARKET_SIZING_STAGES,
+    "quantitative": QUANTITATIVE_STAGES,
+}
+
+# Default for backward compatibility
+STAGES = STRATEGY_STAGES
 STAGE_NAMES: tuple[str, ...] = tuple(s.name for s in STAGES)
 
-# Fields that hold a single string (None when empty) vs. lists.
-_SINGLE_FIELDS = frozenset(s.name for s in STAGES if not s.multi)
-_MULTI_FIELDS = frozenset(s.name for s in STAGES if s.multi)
+# All unique specs across every category (for field classification).
+_ALL_SPECS = {s.name: s for stages in STAGES_BY_CATEGORY.values() for s in stages}
+_SINGLE_FIELDS = frozenset(name for name, s in _ALL_SPECS.items() if not s.multi)
+_MULTI_FIELDS = frozenset(name for name, s in _ALL_SPECS.items() if s.multi)
+
+
+def get_stages_for_category(category: str) -> tuple[StageSpec, ...]:
+    """Return the stage sequence for the given case category."""
+    return STAGES_BY_CATEGORY.get(category, STRATEGY_STAGES)
 
 
 def _is_stage_complete(value: object) -> bool:
@@ -172,7 +259,7 @@ def ask_yes_no(prompt: str) -> bool:
 
 
 def prompt_for_stage(prompt_text: str) -> str:
-    """Prompt the user for a free‑form response and validate it."""
+    """Prompt the user for a free-form response and validate it."""
     while True:
         response = input(prompt_text).rstrip()
         result = validation.validate_response(response)
@@ -257,9 +344,11 @@ def _run_stage(spec: StageSpec, sess: Session, coach_enabled: bool) -> None:
 
 def run_session(sess: Session, coach_enabled: bool) -> None:
     """Interactively run through the remaining stages of the session."""
+    stages = get_stages_for_category(sess.category)
+
     # Find the first incomplete stage
     start_index: int | None = None
-    for i, spec in enumerate(STAGES):
+    for i, spec in enumerate(stages):
         if not _is_stage_complete(getattr(sess, spec.name)):
             start_index = i
             break
@@ -268,7 +357,7 @@ def run_session(sess: Session, coach_enabled: bool) -> None:
         print("This session is already complete.")
         return
 
-    for spec in STAGES[start_index:]:
+    for spec in stages[start_index:]:
         print("\n" + spec.name.upper().replace("_", " "))
         _run_stage(spec, sess, coach_enabled)
 
@@ -284,7 +373,7 @@ def _clear_stage(sess: Session, name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Top‑level commands
+# Top-level commands
 # ---------------------------------------------------------------------------
 
 def start_session(coach_flag: bool | None) -> None:
@@ -299,7 +388,8 @@ def start_session(coach_flag: bool | None) -> None:
         coach_enabled = ask_yes_no("Would you like to enable coach mode for this session? (y/n) ")
     else:
         coach_enabled = coach_flag
-    sess = Session.new(selected_case["id"])
+    category = selected_case.get("category", "strategy")
+    sess = Session.new(selected_case["id"], category=category)
     # Display case prompt and context
     print("\nCASE STUDY")
     print(selected_case["prompt"])
@@ -316,8 +406,12 @@ def resume_session(session_file: str, coach_flag: bool | None) -> None:
     except Exception as e:
         print(f"Failed to load session '{session_file}': {e}")
         return
+
+    stages = get_stages_for_category(sess.category)
+    stage_names = tuple(s.name for s in stages)
+
     # Determine if session is complete
-    complete = all(_is_stage_complete(getattr(sess, name)) for name in STAGE_NAMES)
+    complete = all(_is_stage_complete(getattr(sess, name)) for name in stage_names)
     # Ask about coach if not specified
     if coach_flag is None:
         coach_enabled = ask_yes_no("Would you like to enable coach mode for this session? (y/n) ")
@@ -335,8 +429,8 @@ def resume_session(session_file: str, coach_flag: bool | None) -> None:
             if choice == "1":
                 return
             elif choice == "2":
-                new_sess = Session.new(sess.case_id)
-                for name in STAGE_NAMES:
+                new_sess = Session.new(sess.case_id, category=sess.category)
+                for name in stage_names:
                     val = getattr(sess, name)
                     setattr(new_sess, name, list(val) if isinstance(val, list) else val)
                 run_session(new_sess, coach_enabled)
@@ -359,13 +453,13 @@ def resume_session(session_file: str, coach_flag: bool | None) -> None:
                 return
             elif choice == "2":
                 last_stage_index = -1
-                for i, name in enumerate(STAGE_NAMES):
+                for i, name in enumerate(stage_names):
                     if _is_stage_complete(getattr(sess, name)):
                         last_stage_index = i
                     else:
                         break
                 if last_stage_index >= 0:
-                    for name in STAGE_NAMES[last_stage_index:]:
+                    for name in stage_names[last_stage_index:]:
                         _clear_stage(sess, name)
                     sess.save()
                     run_session(sess, coach_enabled)
@@ -380,10 +474,11 @@ def resume_session(session_file: str, coach_flag: bool | None) -> None:
 
 
 def print_session(sess: Session) -> None:
-    """Pretty‑print the contents of a session."""
+    """Pretty-print the contents of a session."""
+    stages = get_stages_for_category(sess.category)
     print(f"Case ID: {sess.case_id}")
     print(f"Timestamp: {sess.timestamp}")
-    for spec in STAGES:
+    for spec in stages:
         val = getattr(sess, spec.name)
         if not val:
             continue

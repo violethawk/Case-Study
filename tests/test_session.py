@@ -51,6 +51,7 @@ def test_session_save_creates_directory(tmp_path):
 
 def test_new_session_defaults_are_empty():
     session = Session.new("test")
+    assert session.category == "strategy"
     assert session.restatement is None
     assert session.frame is None
     assert session.assumptions == []
@@ -59,6 +60,11 @@ def test_new_session_defaults_are_empty():
     assert session.updates == []
     assert session.conclusion is None
     assert session.additional_insights is None
+    assert session.structure is None
+    assert session.setup is None
+    assert session.calculation == []
+    assert session.sanity_check is None
+    assert session.sensitivity is None
 
 
 def test_load_missing_file_raises():
@@ -77,6 +83,9 @@ def test_load_backwards_compatible(tmp_path):
     assert sess.restatement is None
     assert sess.assumptions == []
     assert sess.additional_insights is None
+    assert sess.category == "strategy"
+    assert sess.structure is None
+    assert sess.calculation == []
 
 
 def test_session_timestamp_is_local():
@@ -101,6 +110,35 @@ def test_list_sessions_creates_directory(tmp_path):
     result = list_sessions(target)
     assert target.exists()
     assert result == []
+
+
+def test_new_session_with_category():
+    sess = Session.new("sizing_case", category="market-sizing")
+    assert sess.category == "market-sizing"
+    assert sess.case_id == "sizing_case"
+
+
+def test_market_sizing_session_round_trip(tmp_path):
+    sess = Session(
+        case_id="coffee",
+        timestamp="2026-01-01_00-00-00",
+        category="market-sizing",
+        restatement="Estimate coffee shops",
+        structure="Top-down from population",
+        assumptions=["330M US population"],
+        calculation=["330M / 1000 = 330K", "Adjust for density: 200K"],
+        sanity_check="Reasonable vs known data",
+        conclusion="About 200K",
+    )
+    sess.save(tmp_path)
+    loaded = Session.load(tmp_path / sess.filename)
+    assert loaded.category == "market-sizing"
+    assert loaded.structure == "Top-down from population"
+    assert loaded.calculation == ["330M / 1000 = 330K", "Adjust for density: 200K"]
+    assert loaded.sanity_check == "Reasonable vs known data"
+    # Strategy-only fields should be empty
+    assert loaded.frame is None
+    assert loaded.hypotheses == []
 
 
 def test_save_overwrite(tmp_path):

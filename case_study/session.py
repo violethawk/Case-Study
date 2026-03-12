@@ -26,6 +26,7 @@ class Session:
 
     case_id: str
     timestamp: str
+    category: str = "strategy"
     restatement: str | None = None
     frame: str | None = None
     assumptions: list[str] = field(default_factory=list)
@@ -34,15 +35,20 @@ class Session:
     updates: list[str] = field(default_factory=list)
     conclusion: str | None = None
     additional_insights: str | None = None
+    structure: str | None = None
+    setup: str | None = None
+    calculation: list[str] = field(default_factory=list)
+    sanity_check: str | None = None
+    sensitivity: str | None = None
 
     @classmethod
-    def new(cls, case_id: str) -> "Session":
+    def new(cls, case_id: str, category: str = "strategy") -> "Session":
         """Create a new session instance for the given case.
 
         The timestamp is generated in the user's local timezone.
         """
         timestamp = datetime.now().astimezone().strftime("%Y-%m-%d_%H-%M-%S")
-        return cls(case_id=case_id, timestamp=timestamp)
+        return cls(case_id=case_id, timestamp=timestamp, category=category)
 
     @property
     def filename(self) -> str:
@@ -65,6 +71,7 @@ class Session:
         return cls(
             case_id=data.get("case_id"),
             timestamp=data.get("timestamp"),
+            category=data.get("category", "strategy"),
             restatement=data.get("restatement"),
             frame=data.get("frame"),
             assumptions=data.get("assumptions", []),
@@ -73,6 +80,11 @@ class Session:
             updates=data.get("updates", []),
             conclusion=data.get("conclusion"),
             additional_insights=data.get("additional_insights"),
+            structure=data.get("structure"),
+            setup=data.get("setup"),
+            calculation=data.get("calculation", []),
+            sanity_check=data.get("sanity_check"),
+            sensitivity=data.get("sensitivity"),
         )
 
 
