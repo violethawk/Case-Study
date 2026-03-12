@@ -17,7 +17,15 @@ def test_each_case_has_required_fields():
     for case in cases:
         assert "id" in case
         assert "prompt" in case
+        assert "category" in case
         assert "difficulty" in case
+
+
+def test_case_categories_are_valid():
+    valid_categories = {"strategy", "market-sizing", "quantitative"}
+    cases = load_cases(DATA_FILE)
+    for case in cases:
+        assert case["category"] in valid_categories, f"{case['id']} has invalid category: {case['category']}"
 
 
 def test_get_case_by_id_found():
