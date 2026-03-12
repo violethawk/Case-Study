@@ -100,27 +100,83 @@ STAGE_CRITERIA: dict[str, str] = {
 }
 
 SYSTEM_PROMPT = """\
-You are an expert case interview coach evaluating a user's response \
-at one stage of a consulting-style case study.
+You are a senior MBB (McKinsey/Bain/BCG) interviewer conducting a live \
+case interview. You are evaluating the candidate's response at one stage \
+of the case.
 
-Rules:
-- NEVER give away the answer or solve the case for the user.
-- Focus on the QUALITY of their thought process, not the content.
-- Be encouraging but honest about gaps.
-- Keep each section to 2-3 sentences.
-- You MUST evaluate whether the response meets the passing criteria.
+Your style:
+- Be direct and specific, like a real interviewer. Reference the candidate's \
+exact words when pointing out strengths or gaps.
+- When you find quantitative errors, call them out specifically \
+(e.g., "Your revenue calculation assumes X but the case says Y").
+- Challenge weak assumptions: "What if that assumption is off by 50%? \
+How would that change your answer?"
+- Ask pointed follow-up questions that probe the candidate's logic, \
+not generic advice. A real interviewer would say "Walk me through \
+why you chose that driver" not "Consider other perspectives."
+- NEVER give away the answer or solve the case for the candidate.
 - Be fair but rigorous. A response doesn't need to be perfect to pass, \
-but it must demonstrate genuine effort and hit the key requirements.
+but it must show structured thinking and hit the key requirements.
 
 Respond with ONLY valid JSON in this exact format (no markdown fences):
 {"passed": true/false, "strengths": "...", "gaps": "...", "questions": "..."}
 
 Where:
 - "passed" is true if the response meets the stage criteria, false otherwise
-- "strengths" highlights what the user did well
-- "gaps" identifies what is missing or weak (especially important if not passed)
-- "questions" suggests 1-2 thought-provoking questions to deepen their reasoning
+- "strengths" highlights specifically what the candidate did well \
+(reference their actual words/numbers)
+- "gaps" identifies specific weaknesses — call out logical errors, \
+missing variables, inconsistent numbers, or shallow reasoning
+- "questions" contains 1-2 pointed follow-up questions an MBB interviewer \
+would actually ask to probe deeper (e.g., "You said revenue grows 10% — \
+what's driving that? Is that organic or inorganic?")
 """
+
+DATA_REVEAL_PROMPT = """\
+You are a senior MBB interviewer conducting a live case interview. \
+The candidate has just completed a stage of their analysis. Your job is to \
+provide a brief piece of new information, data, or a curveball that the \
+candidate must factor into their next steps — just like a real interviewer \
+would share a new exhibit or data point mid-case.
+
+Rules:
+- The reveal should be 2-4 sentences, concise and specific.
+- It must be RELEVANT to the case context and the candidate's response so far.
+- It should challenge or complicate their thinking — not confirm it.
+- Types of reveals: new data point, competitor action, market shift, \
+client constraint, surprising survey result, cost figure, or regulatory change.
+- Do NOT evaluate the candidate's response. Just share the new information \
+as if you're handing them a new exhibit.
+- NEVER solve the case or hint at the answer.
+- Write in first person as the interviewer: "Let me share some additional data..."
+
+Respond with ONLY valid JSON in this exact format (no markdown fences):
+{"reveal": "...", "type": "data|constraint|curveball"}
+
+Where:
+- "reveal" is the interviewer's statement sharing new information
+- "type" categorizes the reveal
+"""
+
+
+# Stages after which the interviewer reveals new data.
+# Maps stage name -> brief description of what kind of reveal to generate.
+DATA_REVEAL_STAGES: dict[str, str] = {
+    "frame": "Share a data exhibit or key metric that the candidate should factor into their analysis.",
+    "assumptions": "Challenge one of the candidate's assumptions with a contradicting data point or market reality.",
+    "equation": "Provide an additional variable or constraint that complicates the candidate's equation.",
+    "structure": "Share a data exhibit or segmentation insight that the candidate should incorporate.",
+    "setup": "Provide an additional data point or constraint that the candidate should factor in.",
+    "calculation": "Reveal a surprising figure or market shift that may change the candidate's numbers.",
+}
+
+
+@dataclass
+class DataReveal:
+    """A mid-case data reveal from the interviewer."""
+
+    reveal: str
+    reveal_type: str = "data"
 
 
 @dataclass
@@ -159,7 +215,11 @@ def is_ai_enabled() -> bool:
     return bool(_GEMINI_API_KEY)
 
 
-def provide_feedback(stage: str, content: Iterable[str] | str) -> CoachFeedback:
+def provide_feedback(
+    stage: str,
+    content: Iterable[str] | str,
+    case_context: str = "",
+) -> CoachFeedback:
     """Generate feedback for the given stage and content.
 
     Uses Gemini 3.1 Flash Lite when ``GEMINI_API_KEY`` is set,
@@ -168,9 +228,11 @@ def provide_feedback(stage: str, content: Iterable[str] | str) -> CoachFeedback:
     Parameters
     ----------
     stage : str
-        The name of the reasoning stage (e.g. "frame", "hypotheses").
+        The name of the reasoning stage (e.g. "frame", "equation").
     content : iterable of str or str
         The user's raw input(s) for this stage.
+    case_context : str
+        The case prompt and context for more specific feedback.
 
     Returns
     -------
@@ -183,7 +245,7 @@ def provide_feedback(stage: str, content: Iterable[str] | str) -> CoachFeedback:
 
     if _GEMINI_API_KEY:
         try:
-            return _gemini_feedback(stage, texts)
+            return _gemini_feedback(stage, texts, case_context)
         except Exception:
             # Fall back to heuristics on any API error
             pass
@@ -191,11 +253,46 @@ def provide_feedback(stage: str, content: Iterable[str] | str) -> CoachFeedback:
     return _heuristic_feedback(stage, texts)
 
 
+def generate_data_reveal(
+    stage: str,
+    content: Iterable[str] | str,
+    case_context: str = "",
+) -> DataReveal | None:
+    """Generate an interviewer data reveal after the given stage.
+
+    Returns ``None`` if the stage doesn't warrant a reveal, AI is not
+    enabled, or the API call fails.
+    """
+    if stage not in DATA_REVEAL_STAGES:
+        return None
+    if not _GEMINI_API_KEY:
+        return None
+
+    if isinstance(content, str):
+        texts = [content]
+    else:
+        texts = list(content)
+
+    try:
+        return _gemini_data_reveal(stage, texts, case_context)
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Gemini backend
 # ---------------------------------------------------------------------------
 
-def _gemini_feedback(stage: str, texts: list[str]) -> CoachFeedback:
+def _strip_markdown_fences(raw: str) -> str:
+    """Remove markdown code fences from model output."""
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+    if raw.endswith("```"):
+        raw = raw[: raw.rfind("```")]
+    return raw.strip()
+
+
+def _gemini_feedback(stage: str, texts: list[str], case_context: str = "") -> CoachFeedback:
     """Call Gemini 3.1 Flash Lite and parse the structured response."""
     from google import genai
 
@@ -207,26 +304,21 @@ def _gemini_feedback(stage: str, texts: list[str]) -> CoachFeedback:
     criteria = STAGE_CRITERIA.get(resolved_key, "Evaluate the quality and completeness of the response.")
 
     user_input = "\n".join(texts) if len(texts) > 1 else texts[0]
+    context_section = f"\nCase context:\n{case_context}\n" if case_context else ""
     prompt = (
         f"{SYSTEM_PROMPT}\n\n"
-        f"Stage: {stage}\n\n"
+        f"Stage: {stage}\n"
+        f"{context_section}\n"
         f"Passing criteria for this stage:\n{criteria}\n\n"
-        f"User's response:\n{user_input}\n\n"
-        "Evaluate the response and provide your coaching feedback as JSON."
+        f"Candidate's response:\n{user_input}\n\n"
+        "Evaluate the response and provide your interviewer feedback as JSON."
     )
 
     response = client.models.generate_content(
         model="gemini-3.1-flash-lite-preview",
         contents=prompt,
     )
-    raw = response.text.strip()
-
-    # Strip markdown fences if the model wraps its response
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-    if raw.endswith("```"):
-        raw = raw[: raw.rfind("```")]
-    raw = raw.strip()
+    raw = _strip_markdown_fences(response.text.strip())
 
     data = json.loads(raw)
     return CoachFeedback(
@@ -234,6 +326,36 @@ def _gemini_feedback(stage: str, texts: list[str]) -> CoachFeedback:
         gaps=data.get("gaps", ""),
         questions=data.get("questions", ""),
         passed=bool(data.get("passed", True)),
+    )
+
+
+def _gemini_data_reveal(stage: str, texts: list[str], case_context: str) -> DataReveal:
+    """Call Gemini to generate an interviewer data reveal."""
+    from google import genai
+
+    client = genai.Client(api_key=_GEMINI_API_KEY)
+
+    reveal_guidance = DATA_REVEAL_STAGES.get(stage, "")
+    user_input = "\n".join(texts) if len(texts) > 1 else texts[0]
+    prompt = (
+        f"{DATA_REVEAL_PROMPT}\n\n"
+        f"Case context:\n{case_context}\n\n"
+        f"Stage just completed: {stage}\n"
+        f"Reveal guidance: {reveal_guidance}\n\n"
+        f"Candidate's response:\n{user_input}\n\n"
+        "Generate a brief, specific data reveal as JSON."
+    )
+
+    response = client.models.generate_content(
+        model="gemini-3.1-flash-lite-preview",
+        contents=prompt,
+    )
+    raw = _strip_markdown_fences(response.text.strip())
+
+    data = json.loads(raw)
+    return DataReveal(
+        reveal=data.get("reveal", ""),
+        reveal_type=data.get("type", "data"),
     )
 
 

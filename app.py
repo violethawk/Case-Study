@@ -157,6 +157,24 @@ CUSTOM_CSS = """
     margin-top: 0;
 }
 
+/* Interviewer reveal card */
+.interviewer-card {
+    background: linear-gradient(135deg, #f3e5f5 0%, #e8eaf6 100%);
+    border-left: 4px solid #6a1b9a;
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    margin: 1rem 0;
+    color: #4a148c;
+}
+.interviewer-card .interviewer-label {
+    font-weight: 700;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.5rem;
+    color: #6a1b9a;
+}
+
 /* Timer display */
 .timer-display {
     font-family: monospace;
@@ -491,8 +509,11 @@ def render_session_review():
         feedback_history_key = f"feedback_history_{spec.name}"
         if feedback_history_key in st.session_state:
             fb = st.session_state[feedback_history_key]
-            st.markdown("**Coach Feedback:**")
+            st.markdown("**Interviewer Feedback:**")
             _render_feedback_display(fb)
+
+        # Show any data reveal for this stage
+        _render_data_reveal(spec.name)
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -556,6 +577,11 @@ def render_session():
     # Current stage
     spec = stages[stage_idx]
     stage_name = spec.name
+
+    # Show any data reveal from the previous stage
+    if stage_idx > 0:
+        prev_stage = stages[stage_idx - 1].name
+        _render_data_reveal(prev_stage)
 
     # Stage header with attempt badge
     attempt_count = st.session_state.get(f"attempts_{stage_name}", 1)
@@ -741,7 +767,7 @@ def _clear_stage_input_keys():
         k
         for k in st.session_state
         if k.startswith(
-            ("input_", "items_", "new_item_", "submitted_", "content_", "feedback_", "add_counter_", "previous_response_")
+            ("input_", "items_", "new_item_", "submitted_", "content_", "feedback_", "add_counter_", "previous_response_", "data_reveal_")
         )
     ]
     for k in keys_to_remove:
@@ -759,6 +785,33 @@ def _full_reset():
     _clear_stage_input_keys()
 
 
+def _get_case_context_text() -> str:
+    """Return the case prompt + context as a single string for the AI coach."""
+    case = st.session_state.get("selected_case", {})
+    parts = []
+    if case.get("prompt"):
+        parts.append(case["prompt"])
+    if case.get("context"):
+        parts.append(case["context"])
+    return "\n\n".join(parts)
+
+
+def _render_data_reveal(stage_name: str):
+    """Show any interviewer data reveal stored for this stage."""
+    reveal_key = f"data_reveal_{stage_name}"
+    reveal = st.session_state.get(reveal_key)
+    if reveal:
+        type_labels = {"data": "New Data", "constraint": "New Constraint", "curveball": "Curveball"}
+        type_label = type_labels.get(reveal.reveal_type, "Interviewer")
+        st.markdown(
+            f'<div class="interviewer-card">'
+            f'<div class="interviewer-label">Interviewer — {_escape_markdown(type_label)}</div>'
+            f'{_escape_markdown(reveal.reveal)}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+
 def render_coach_feedback():
     """Check if any stage was just submitted and handle coach evaluation.
 
@@ -769,6 +822,7 @@ def render_coach_feedback():
     """
     ai_gating = st.session_state.get("coach_enabled", False) and coach.is_ai_enabled()
     stages = _get_active_stages()
+    case_context = _get_case_context_text()
 
     for spec in stages:
         submitted_key = f"submitted_{spec.name}"
@@ -782,8 +836,8 @@ def render_coach_feedback():
         if ai_gating:
             if feedback_key not in st.session_state:
                 content = st.session_state[f"content_{spec.name}"]
-                with st.spinner("Coach is evaluating your response..."):
-                    fb = coach.provide_feedback(spec.name, content)
+                with st.spinner("Interviewer is evaluating your response..."):
+                    fb = coach.provide_feedback(spec.name, content, case_context)
                 st.session_state[feedback_key] = fb
 
             fb = st.session_state[feedback_key]
@@ -796,6 +850,16 @@ def render_coach_feedback():
                 )
                 # Save feedback for report
                 st.session_state[f"feedback_history_{spec.name}"] = fb
+                # Generate data reveal if applicable
+                reveal_key = f"data_reveal_{spec.name}"
+                if reveal_key not in st.session_state:
+                    content = st.session_state.get(f"content_{spec.name}", "")
+                    with st.spinner("Interviewer is preparing new information..."):
+                        reveal = coach.generate_data_reveal(spec.name, content, case_context)
+                    if reveal and reveal.reveal:
+                        st.session_state[reveal_key] = reveal
+                # Show data reveal if generated
+                _render_data_reveal(spec.name)
                 if st.button("Continue to next stage", key=f"continue_{spec.name}"):
                     _clear_submitted(spec.name, clear_previous=True)
                     st.rerun()
@@ -831,7 +895,7 @@ def render_coach_feedback():
             if feedback_key not in st.session_state:
                 if st.button("Get Coach Feedback", key=f"coach_btn_{spec.name}"):
                     content = st.session_state[f"content_{spec.name}"]
-                    fb = coach.provide_feedback(spec.name, content)
+                    fb = coach.provide_feedback(spec.name, content, case_context)
                     st.session_state[feedback_key] = fb
 
             if feedback_key in st.session_state:
