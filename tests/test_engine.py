@@ -50,7 +50,7 @@ def test_multi_stages_have_item_name():
 
 
 def test_strategy_stages_count():
-    assert len(STRATEGY_STAGES) == 7
+    assert len(STRATEGY_STAGES) == 8
 
 
 def test_market_sizing_stages_count():
@@ -64,8 +64,8 @@ def test_quantitative_stages_count():
 def test_strategy_stage_names():
     names = tuple(s.name for s in STRATEGY_STAGES)
     assert names == (
-        "restatement", "frame", "assumptions", "equation",
-        "calculation", "conclusion", "additional_insights",
+        "restatement", "frame", "assumptions", "hypotheses",
+        "equation", "calculation", "conclusion", "additional_insights",
     )
 
 
@@ -228,7 +228,8 @@ def test_run_session_already_complete(capsys):
     sess = Session(
         case_id="x", timestamp="t",
         restatement="r", frame="f", assumptions=["a"],
-        equation="Revenue = P * Q", calculation=["step1"],
+        hypotheses=["h1"], equation="Revenue = P * Q",
+        calculation=["step1"],
         conclusion="c", additional_insights="ai",
     )
     run_session(sess, coach_enabled=False)
@@ -240,7 +241,8 @@ def test_run_session_single_stage(monkeypatch, tmp_path, capsys):
     sess = Session(
         case_id="x", timestamp="t",
         restatement="r", frame="f", assumptions=["a"],
-        equation="Revenue = P * Q", calculation=["step1"],
+        hypotheses=["h1"], equation="Revenue = P * Q",
+        calculation=["step1"],
         conclusion="c",
     )
     # Mock save to use tmp_path and mock input for additional_insights
@@ -255,7 +257,7 @@ def test_run_session_single_stage(monkeypatch, tmp_path, capsys):
 
 
 def test_run_session_multi_stage(monkeypatch, tmp_path, capsys):
-    """Run a session that needs equation stage onward."""
+    """Run a session that needs hypotheses stage onward."""
     sess = Session(
         case_id="x", timestamp="t",
         restatement="r", frame="f", assumptions=["a"],
@@ -263,16 +265,19 @@ def test_run_session_multi_stage(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(sess, "save", lambda directory=tmp_path: None)
 
     inputs = iter([
-        "Revenue = Price * Volume",                    # equation
-        "Price = $50, Volume = 10K, Revenue = $500K",  # calculation step 1
-        "n",                                            # no more calc steps
-        "Recommend expansion",                          # conclusion
-        "Watch for regulatory changes",                 # additional insights
+        "Revenue decline is driven by pricing pressure",  # hypothesis 1
+        "n",                                               # no more hypotheses
+        "Revenue = Price * Volume",                        # equation
+        "Price = $50, Volume = 10K, Revenue = $500K",      # calculation step 1
+        "n",                                               # no more calc steps
+        "Recommend expansion",                             # conclusion
+        "Watch for regulatory changes",                    # additional insights
     ])
     monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
 
     run_session(sess, coach_enabled=False)
 
+    assert sess.hypotheses == ["Revenue decline is driven by pricing pressure"]
     assert sess.equation == "Revenue = Price * Volume"
     assert sess.calculation == ["Price = $50, Volume = 10K, Revenue = $500K"]
     assert sess.conclusion == "Recommend expansion"
@@ -336,7 +341,8 @@ def test_run_session_with_coach(monkeypatch, tmp_path, capsys):
     sess = Session(
         case_id="x", timestamp="t",
         restatement="r", frame="f", assumptions=["a"],
-        equation="Revenue = P * Q", calculation=["step1"],
+        hypotheses=["h1"], equation="Revenue = P * Q",
+        calculation=["step1"],
         conclusion="c",
     )
     monkeypatch.setattr(sess, "save", lambda directory=tmp_path: None)

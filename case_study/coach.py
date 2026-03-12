@@ -205,6 +205,7 @@ Where:
 DATA_REVEAL_STAGES: dict[str, str] = {
     "frame": "Share a data exhibit or key metric that the candidate should factor into their analysis.",
     "assumptions": "Challenge one of the candidate's assumptions with a contradicting data point or market reality.",
+    "hypotheses": "Share data that challenges or complicates one of the candidate's hypotheses, forcing them to reconsider.",
     "equation": "Provide an additional variable or constraint that complicates the candidate's equation.",
     "structure": "Share a data exhibit or segmentation insight that the candidate should incorporate.",
     "setup": "Provide an additional data point or constraint that the candidate should factor in.",
@@ -608,6 +609,10 @@ STAGE_HINTS: dict[str, dict[str, str]] = {
     "assumptions": {
         "hint": "State what you're taking as given before doing math. Good assumptions are specific and testable (e.g., 'US population is 330M' not 'the market is big').",
         "structure": "For each assumption:\n- **Assumption:** [specific claim]\n- **Justification:** [why you believe it]\n- **Impact if wrong:** [high/medium/low]",
+    },
+    "hypotheses": {
+        "hint": "Form a testable guess about what's driving the problem. For example: 'I hypothesize that revenue decline is driven by pricing pressure rather than volume loss.' Good hypotheses are specific and can be confirmed or refuted with data.",
+        "structure": "For each hypothesis:\n- **Hypothesis:** [specific, testable claim]\n- **Category:** [demand/supply/internal/external]\n- **How to test:** [what data or analysis would confirm or refute it]\n- **Why it matters:** [impact if true]",
     },
     "equation": {
         "hint": "Break the problem into a formula. For example, Profit = Revenue - Cost, or Revenue = Price x Volume. Which variables do you know vs. need to estimate?",

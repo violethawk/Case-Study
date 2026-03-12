@@ -2,9 +2,9 @@
 Core logic for running a case study session.
 
 The engine orchestrates the user through a category-specific sequence
-of reasoning stages.  Strategy cases use a 7-stage loop with
-quantitative analysis, while market-sizing and quantitative cases
-follow tailored 6-stage flows.
+of reasoning stages.  Strategy cases use an 8-stage loop with
+hypothesis-driven reasoning and quantitative analysis, while
+market-sizing and quantitative cases follow tailored 6-stage flows.
 
 It interacts with the CLI, prompts for user input, validates
 responses, optionally invokes the AI coach, and persists the session
@@ -168,8 +168,8 @@ _sensitivity = StageSpec(
 # ---- Category-specific stage sequences ------------------------------------
 
 STRATEGY_STAGES: tuple[StageSpec, ...] = (
-    _restatement, _frame, _assumptions, _equation,
-    _calculation, _conclusion, _additional_insights,
+    _restatement, _frame, _assumptions, _hypotheses,
+    _equation, _calculation, _conclusion, _additional_insights,
 )
 
 MARKET_SIZING_STAGES: tuple[StageSpec, ...] = (
@@ -312,13 +312,22 @@ def prompt_for_multi_items(item_name: str) -> list[str]:
 # Session runner
 # ---------------------------------------------------------------------------
 
-def _run_stage(spec: StageSpec, sess: Session, coach_enabled: bool) -> None:
+def _run_stage(
+    spec: StageSpec,
+    sess: Session,
+    coach_enabled: bool,
+    case_context: str = "",
+    difficulty: str = "advanced",
+) -> None:
     """Execute a single stage: print preamble, collect input, save, offer coach.
 
     When coach mode is enabled and the AI backend is available, the
     stage acts as a gate — the user must revise and resubmit until
     the coach marks the response as passed.  With the heuristic
     fallback the stage always passes on the first attempt.
+
+    After a stage passes, a mid-case data reveal may be generated and
+    printed to simulate an interviewer sharing new information.
     """
     ai_gating = coach_enabled and coach.is_ai_enabled()
 
@@ -343,7 +352,7 @@ def _run_stage(spec: StageSpec, sess: Session, coach_enabled: bool) -> None:
 
         # Always evaluate when AI gating is on; otherwise ask
         if ai_gating or ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
-            feedback = coach.provide_feedback(spec.name, value)
+            feedback = coach.provide_feedback(spec.name, value, case_context, difficulty)
             print("\n" + feedback.format_for_cli() + "\n")
             if feedback.passed:
                 break
@@ -352,8 +361,20 @@ def _run_stage(spec: StageSpec, sess: Session, coach_enabled: bool) -> None:
         else:
             break
 
+    # Mid-case data reveal
+    reveal = coach.generate_data_reveal(spec.name, value, case_context, difficulty)
+    if reveal and reveal.reveal:
+        print(f"\n--- INTERVIEWER ({reveal.reveal_type.upper()}) ---")
+        print(reveal.reveal)
+        print("---\n")
 
-def run_session(sess: Session, coach_enabled: bool) -> None:
+
+def run_session(
+    sess: Session,
+    coach_enabled: bool,
+    case_context: str = "",
+    difficulty: str = "advanced",
+) -> None:
     """Interactively run through the remaining stages of the session."""
     stages = get_stages_for_category(sess.category)
 
@@ -370,7 +391,7 @@ def run_session(sess: Session, coach_enabled: bool) -> None:
 
     for spec in stages[start_index:]:
         print("\n" + spec.name.upper().replace("_", " "))
-        _run_stage(spec, sess, coach_enabled)
+        _run_stage(spec, sess, coach_enabled, case_context, difficulty)
 
     print("\nSession complete. Your reasoning has been saved.")
 
@@ -404,10 +425,11 @@ def start_session(coach_flag: bool | None) -> None:
     # Display case prompt and context
     print("\nCASE STUDY")
     print(selected_case["prompt"])
-    context = selected_case.get("context")
+    context = selected_case.get("context", "")
     if context:
         print("Context:", context)
-    run_session(sess, coach_enabled)
+    case_context = selected_case["prompt"] + ("\n\n" + context if context else "")
+    run_session(sess, coach_enabled, case_context)
 
 
 def resume_session(session_file: str, coach_flag: bool | None) -> None:
