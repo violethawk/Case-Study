@@ -1,8 +1,5 @@
 """Tests for the engine module – stage specs, session flow, and helpers."""
 
-from unittest.mock import patch, call
-from pathlib import Path
-
 import pytest
 
 from case_study.engine import (
@@ -10,10 +7,11 @@ from case_study.engine import (
     STAGE_NAMES,
     _SINGLE_FIELDS,
     _MULTI_FIELDS,
+    _is_stage_complete,
     run_session,
     print_session,
     _clear_stage,
-    load_frameworks,
+    choose_case,
 )
 from case_study.session import Session
 
@@ -41,6 +39,40 @@ def test_multi_stages_have_item_name():
     for spec in STAGES:
         if spec.multi:
             assert spec.item_name, f"{spec.name} is multi but has no item_name"
+
+
+# ---------------------------------------------------------------------------
+# _is_stage_complete
+# ---------------------------------------------------------------------------
+
+def test_stage_complete_with_string():
+    assert _is_stage_complete("some text") is True
+
+
+def test_stage_complete_with_none():
+    assert _is_stage_complete(None) is False
+
+
+def test_stage_complete_with_empty_string():
+    assert _is_stage_complete("") is False
+
+
+def test_stage_complete_with_empty_list():
+    assert _is_stage_complete([]) is False
+
+
+def test_stage_complete_with_populated_list():
+    assert _is_stage_complete(["item"]) is True
+
+
+# ---------------------------------------------------------------------------
+# choose_case
+# ---------------------------------------------------------------------------
+
+def test_choose_case_empty_list(capsys):
+    result = choose_case([])
+    assert result is None
+    assert "No cases available" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------

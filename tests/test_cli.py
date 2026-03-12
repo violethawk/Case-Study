@@ -1,9 +1,5 @@
 """Tests for the CLI argument parsing and dispatch."""
 
-import io
-import sys
-from unittest.mock import patch
-
 import pytest
 
 from case_study.cli import main

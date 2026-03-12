@@ -77,7 +77,7 @@ class Session:
 
 
 def list_sessions(directory: Path = SESSIONS_DIR) -> list[Path]:
-    """Return a list of session file paths sorted by modification time.
+    """Return a list of session file paths sorted by modification time (newest first).
 
     The directory is created if it does not already exist.  Only files
     ending with ``.json`` are included.

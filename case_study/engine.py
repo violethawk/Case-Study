@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from . import cases, coach, validation
 from .session import Session
@@ -104,7 +105,12 @@ _SINGLE_FIELDS = frozenset(s.name for s in STAGES if not s.multi)
 _MULTI_FIELDS = frozenset(s.name for s in STAGES if s.multi)
 
 
-def load_frameworks() -> list[dict]:
+def _is_stage_complete(value: object) -> bool:
+    """Return True if a stage field has been filled in."""
+    return value is not None and value != "" and value != []
+
+
+def load_frameworks() -> list[dict[str, Any]]:
     """Load the business frameworks reference from the data directory."""
     if FRAMEWORKS_FILE.exists():
         with FRAMEWORKS_FILE.open("r", encoding="utf-8") as f:
@@ -124,7 +130,7 @@ def display_frameworks() -> None:
     print()
 
 
-def choose_case(cases_list: list[dict]) -> dict | None:
+def choose_case(cases_list: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Prompt the user to select a case from the provided list.
 
     The cases are displayed with an index and ID.  The user may
@@ -132,6 +138,9 @@ def choose_case(cases_list: list[dict]) -> dict | None:
     Returns the chosen case dictionary or ``None`` if no valid choice
     is made.
     """
+    if not cases_list:
+        print("No cases available.")
+        return None
     print("Available cases:")
     for idx, c in enumerate(cases_list, start=1):
         print(f"  {idx}. {c['id']} – {c['prompt'][:60]}...")
@@ -232,7 +241,7 @@ def run_session(sess: Session, coach_enabled: bool) -> None:
     # Find the first incomplete stage
     start_index: int | None = None
     for i, spec in enumerate(STAGES):
-        if getattr(sess, spec.name) in (None, [], ""):
+        if not _is_stage_complete(getattr(sess, spec.name)):
             start_index = i
             break
 
@@ -289,7 +298,7 @@ def resume_session(session_file: str, coach_flag: bool | None) -> None:
         print(f"Failed to load session '{session_file}': {e}")
         return
     # Determine if session is complete
-    complete = all(getattr(sess, name) for name in STAGE_NAMES)
+    complete = all(_is_stage_complete(getattr(sess, name)) for name in STAGE_NAMES)
     # Ask about coach if not specified
     if coach_flag is None:
         coach_enabled = ask_yes_no("Would you like to enable coach mode for this session? (y/n) ")
@@ -332,7 +341,7 @@ def resume_session(session_file: str, coach_flag: bool | None) -> None:
             elif choice == "2":
                 last_stage_index = -1
                 for i, name in enumerate(STAGE_NAMES):
-                    if getattr(sess, name):
+                    if _is_stage_complete(getattr(sess, name)):
                         last_stage_index = i
                     else:
                         break
