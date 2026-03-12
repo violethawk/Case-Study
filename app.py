@@ -5,6 +5,7 @@ Provides a browser-based interface for the full case study session flow,
 reusing the existing backend modules (cases, coach, validation, session).
 """
 
+import time
 import streamlit as st
 from pathlib import Path
 
@@ -37,6 +38,121 @@ STAGE_DESCRIPTIONS = {
     "conclusion": "What is your recommendation?",
     "additional_insights": "Go beyond the case: what additional considerations, risks, or opportunities should the client think about?",
 }
+
+# ---------------------------------------------------------------------------
+# Custom CSS
+# ---------------------------------------------------------------------------
+
+CUSTOM_CSS = """
+<style>
+/* Header bar */
+.main-header {
+    background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+    color: white;
+    padding: 1.5rem 2rem;
+    border-radius: 10px;
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+.main-header h1 {
+    margin: 0;
+    font-size: 2rem;
+    font-weight: 700;
+    color: white;
+}
+.main-header p {
+    margin: 0.3rem 0 0 0;
+    font-size: 1rem;
+    opacity: 0.85;
+    color: #e8eaf6;
+}
+
+/* Feedback cards */
+.feedback-card {
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    margin: 0.5rem 0;
+    border-left: 4px solid;
+}
+.feedback-strengths {
+    background: #e8f5e9;
+    border-left-color: #2e7d32;
+    color: #1b5e20;
+}
+.feedback-gaps {
+    background: #fff3e0;
+    border-left-color: #e65100;
+    color: #bf360c;
+}
+.feedback-questions {
+    background: #e3f2fd;
+    border-left-color: #1565c0;
+    color: #0d47a1;
+}
+.feedback-pass {
+    background: #e8f5e9;
+    border: 2px solid #2e7d32;
+    border-radius: 8px;
+    padding: 0.8rem 1.2rem;
+    color: #1b5e20;
+    font-weight: 600;
+}
+.feedback-fail {
+    background: #ffebee;
+    border: 2px solid #c62828;
+    border-radius: 8px;
+    padding: 0.8rem 1.2rem;
+    color: #b71c1c;
+    font-weight: 600;
+}
+
+/* Progress bar color override */
+.stProgress > div > div > div > div {
+    background: linear-gradient(90deg, #1a237e, #42a5f5);
+}
+
+/* Stage label */
+.stage-header {
+    color: #1a237e;
+    font-weight: 700;
+}
+.attempt-badge {
+    background: #ff8f00;
+    color: white;
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 0.8rem;
+    margin-left: 8px;
+    font-weight: 600;
+}
+
+/* Report section */
+.report-section {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    margin-bottom: 1rem;
+    background: #fafafa;
+}
+.report-section h4 {
+    color: #1a237e;
+    margin-top: 0;
+}
+
+/* Timer display */
+.timer-display {
+    font-family: monospace;
+    font-size: 1.3rem;
+    color: #1a237e;
+    font-weight: 700;
+    text-align: center;
+    padding: 0.5rem;
+    background: #e8eaf6;
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+}
+</style>
+"""
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -77,13 +193,68 @@ def load_all_cases():
     return cases.load_cases()
 
 
+def _format_elapsed(start_time: float) -> str:
+    """Format elapsed seconds as HH:MM:SS."""
+    elapsed = int(time.time() - start_time)
+    hours, remainder = divmod(elapsed, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def _render_case_context(context_text: str):
+    """Render case context, detecting text-based tables and using st.code for them."""
+    if not context_text:
+        return
+
+    lines = context_text.split("\n")
+    buffer = []
+    in_table = False
+
+    def flush_buffer():
+        if buffer:
+            text = "\n".join(buffer)
+            if in_table:
+                st.code(text, language=None)
+            else:
+                st.markdown(text)
+            buffer.clear()
+
+    for line in lines:
+        # Detect table rows: lines containing | character (but not markdown bold etc.)
+        stripped = line.strip()
+        is_table_line = "|" in stripped and (
+            stripped.startswith("|") or stripped.count("|") >= 2
+        )
+        # Also treat separator lines (---+---) as table
+        is_separator = bool(stripped) and all(c in "-+| " for c in stripped) and len(stripped) > 3
+
+        if is_table_line or is_separator:
+            if not in_table:
+                flush_buffer()
+                in_table = True
+            buffer.append(line)
+        else:
+            if in_table:
+                flush_buffer()
+                in_table = False
+            buffer.append(line)
+
+    flush_buffer()
+
+
 # ---------------------------------------------------------------------------
 # Page: Case Selection
 # ---------------------------------------------------------------------------
 
 
 def render_case_selection():
-    st.title("Case Study Practice")
+    st.markdown(
+        '<div class="main-header">'
+        "<h1>Case Study Practice</h1>"
+        "<p>Sharpen your consulting problem-solving skills with structured case interviews</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
     st.markdown("Select a case to begin your structured reasoning session.")
 
     all_cases = load_all_cases()
@@ -91,17 +262,28 @@ def render_case_selection():
     # Filters
     col1, col2 = st.columns(2)
     categories = sorted({c.get("category", "unknown") for c in all_cases})
-    difficulties = sorted({c.get("difficulty", "unknown") for c in all_cases}, key=lambda d: ["easy", "medium", "hard"].index(d) if d in ["easy", "medium", "hard"] else 99)
+    difficulties = sorted(
+        {c.get("difficulty", "unknown") for c in all_cases},
+        key=lambda d: ["easy", "medium", "hard"].index(d) if d in ["easy", "medium", "hard"] else 99,
+    )
 
     cat_labels = {c: _display_name(c) for c in categories}
     diff_labels = {d: d.capitalize() for d in difficulties}
 
     with col1:
         cat_display = st.selectbox("Category", ["All"] + [cat_labels[c] for c in categories])
-        cat_filter = next((k for k, v in cat_labels.items() if v == cat_display), None) if cat_display != "All" else None
+        cat_filter = (
+            next((k for k, v in cat_labels.items() if v == cat_display), None)
+            if cat_display != "All"
+            else None
+        )
     with col2:
         diff_display = st.selectbox("Difficulty", ["All"] + [diff_labels[d] for d in difficulties])
-        diff_filter = next((k for k, v in diff_labels.items() if v == diff_display), None) if diff_display != "All" else None
+        diff_filter = (
+            next((k for k, v in diff_labels.items() if v == diff_display), None)
+            if diff_display != "All"
+            else None
+        )
 
     filtered = all_cases
     if cat_filter:
@@ -111,7 +293,7 @@ def render_case_selection():
 
     st.toggle("Enable Coach Mode", key="coach_enabled", value=st.session_state.get("coach_enabled", True))
     if st.session_state.get("coach_enabled") and coach.is_ai_enabled():
-        st.caption("AI coaching active — you must pass each stage to advance.")
+        st.caption("AI coaching active -- you must pass each stage to advance.")
     elif st.session_state.get("coach_enabled"):
         st.caption("Heuristic coaching (set GEMINI_API_KEY for AI-powered gating).")
 
@@ -122,19 +304,86 @@ def render_case_selection():
     for case in filtered:
         diff = case.get("difficulty", "?")
         diff_emoji = {"easy": "🟢", "medium": "🟡", "hard": "🔴"}.get(diff, "⚪")
-        with st.expander(f"{diff_emoji} **{_display_name(case['id'])}** — {case['prompt'][:80]}..."):
-            st.markdown(f"**Category:** {_display_name(case.get('category', 'N/A'))}  |  **Difficulty:** {diff.capitalize()}")
+        with st.expander(f"{diff_emoji} **{_display_name(case['id'])}** -- {case['prompt'][:80]}..."):
+            st.markdown(
+                f"**Category:** {_display_name(case.get('category', 'N/A'))}  |  **Difficulty:** {diff.capitalize()}"
+            )
             st.markdown(f"**Prompt:** {case['prompt']}")
             if case.get("context"):
-                st.markdown(f"**Context:** {case['context'][:300]}{'...' if len(case.get('context', '')) > 300 else ''}")
+                st.markdown("**Context preview:**")
+                _render_case_context(case["context"][:300] + ("..." if len(case.get("context", "")) > 300 else ""))
             if st.button("Start this case", key=f"start_{case['id']}"):
                 sess = Session.new(case["id"])
                 st.session_state.session = sess
                 st.session_state.selected_case = case
                 st.session_state.active_stage = 0
                 st.session_state.page = "session"
+                st.session_state.timer_start = time.time()
+                # Initialize attempt counters
+                for spec in STAGES:
+                    st.session_state[f"attempts_{spec.name}"] = 1
                 save_session()
                 st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Page: Session Review (post-completion report)
+# ---------------------------------------------------------------------------
+
+
+def render_session_review():
+    """Show a full summary report after all 8 stages are complete."""
+    sess = st.session_state.session
+    case = st.session_state.selected_case
+
+    st.markdown(
+        '<div class="main-header">'
+        "<h1>Session Complete</h1>"
+        "<p>Review your full case study reasoning below</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Case info
+    st.markdown(f"**Case:** {_display_name(sess.case_id)}")
+    st.markdown(f"**Prompt:** {case['prompt']}")
+    if st.session_state.get("timer_start"):
+        elapsed = _format_elapsed(st.session_state.timer_start)
+        st.markdown(f"**Total time:** {elapsed}")
+    st.markdown("---")
+
+    # Report: each stage
+    for spec in STAGES:
+        val = getattr(sess, spec.name)
+        label = STAGE_LABELS[spec.name]
+
+        st.markdown(
+            f'<div class="report-section"><h4>{label}</h4>',
+            unsafe_allow_html=True,
+        )
+
+        if isinstance(val, list):
+            for j, item in enumerate(val, 1):
+                st.markdown(f"{j}. {item}")
+        else:
+            st.markdown(val if val else "_No response_")
+
+        # Show any stored coach feedback for this stage
+        feedback_history_key = f"feedback_history_{spec.name}"
+        if feedback_history_key in st.session_state:
+            fb = st.session_state[feedback_history_key]
+            st.markdown("**Coach Feedback:**")
+            _render_feedback_display(fb)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    st.balloons()
+
+    if st.button("Start New Case", type="primary", use_container_width=True):
+        _full_reset()
+        st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -148,21 +397,31 @@ def render_session():
     stage_idx = current_stage_index()
 
     # Header
-    st.title(f"Case: {_display_name(sess.case_id)}")
+    st.markdown(
+        f'<div class="main-header">'
+        f"<h1>Case: {_display_name(sess.case_id)}</h1>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
     st.markdown(f"**Prompt:** {case['prompt']}")
     if case.get("context"):
         with st.expander("View full case context"):
-            st.markdown(case["context"])
+            _render_case_context(case["context"])
 
     # Progress
     total = len(STAGES)
     st.progress(stage_idx / total, text=f"Progress: {stage_idx}/{total} stages complete")
 
-    # Show completed stages
+    # Show completed stages (most recent one expanded)
     for i in range(stage_idx):
         spec = STAGES[i]
         val = getattr(sess, spec.name)
-        with st.expander(f"{STAGE_LABELS[spec.name]} (completed)"):
+        is_most_recent = i == stage_idx - 1
+        attempt_count = st.session_state.get(f"attempts_{spec.name}", 1)
+        label = f"{STAGE_LABELS[spec.name]} (completed)"
+        if attempt_count > 1:
+            label += f"  -- Attempt {attempt_count}"
+        with st.expander(label, expanded=is_most_recent):
             if isinstance(val, list):
                 for j, item in enumerate(val, 1):
                     st.markdown(f"{j}. {item}")
@@ -171,20 +430,24 @@ def render_session():
 
     # All done?
     if stage_idx >= total:
-        st.success("Session complete! Your reasoning has been saved.")
-        st.balloons()
-        if st.button("Start a new case"):
-            for key in ["session", "selected_case", "active_stage", "page"]:
-                st.session_state.pop(key, None)
-            _clear_stage_input_keys()
-            st.rerun()
+        render_session_review()
         return
 
     # Current stage
     spec = STAGES[stage_idx]
     stage_name = spec.name
 
-    st.subheader(STAGE_LABELS[stage_name])
+    # Stage header with attempt badge
+    attempt_count = st.session_state.get(f"attempts_{stage_name}", 1)
+    header_html = f'<span class="stage-header">{STAGE_LABELS[stage_name]}</span>'
+    if attempt_count > 1:
+        header_html += f' <span class="attempt-badge">Attempt {attempt_count}</span>'
+    st.markdown(f"### {STAGE_LABELS[stage_name]}")
+    if attempt_count > 1:
+        st.markdown(
+            f'<span class="attempt-badge">Attempt {attempt_count}</span>',
+            unsafe_allow_html=True,
+        )
     st.markdown(STAGE_DESCRIPTIONS[stage_name])
 
     # Frameworks reference for frame stage
@@ -233,6 +496,11 @@ def _render_multi_input(stage_name: str, item_name: str, stage_idx: int):
     if items_key not in st.session_state:
         st.session_state[items_key] = []
 
+    # Counter for clearing text area after add
+    add_counter_key = f"add_counter_{stage_name}"
+    if add_counter_key not in st.session_state:
+        st.session_state[add_counter_key] = 0
+
     # Show existing items
     items = st.session_state[items_key]
     if items:
@@ -246,8 +514,9 @@ def _render_multi_input(stage_name: str, item_name: str, stage_idx: int):
                     st.session_state[items_key].pop(j)
                     st.rerun()
 
-    # Add new item
-    new_item_key = f"new_item_{stage_name}"
+    # Add new item -- use counter in key to force fresh widget after add
+    counter = st.session_state[add_counter_key]
+    new_item_key = f"new_item_{stage_name}_{counter}"
     new_item = st.text_area(
         f"Add {item_name.lower()}:",
         key=new_item_key,
@@ -265,6 +534,8 @@ def _render_multi_input(stage_name: str, item_name: str, stage_idx: int):
                 if result.short:
                     st.warning(f"{result.message} Consider expanding for a stronger answer.")
                 st.session_state[items_key].append(new_item)
+                # Increment counter to generate fresh text area key
+                st.session_state[add_counter_key] += 1
                 st.rerun()
 
     with col2:
@@ -274,6 +545,7 @@ def _render_multi_input(stage_name: str, item_name: str, stage_idx: int):
             _after_stage_submit(stage_name, items)
             # Clean up temp items
             st.session_state.pop(items_key, None)
+            st.session_state.pop(add_counter_key, None)
 
     if not items:
         st.caption(f"Add at least one {item_name.lower()} before proceeding.")
@@ -288,9 +560,26 @@ def _after_stage_submit(stage_name: str, content):
 
 def _clear_stage_input_keys():
     """Remove transient input keys from session state."""
-    keys_to_remove = [k for k in st.session_state if k.startswith(("input_", "items_", "new_item_", "submitted_", "content_", "feedback_"))]
+    keys_to_remove = [
+        k
+        for k in st.session_state
+        if k.startswith(
+            ("input_", "items_", "new_item_", "submitted_", "content_", "feedback_", "add_counter_")
+        )
+    ]
     for k in keys_to_remove:
         del st.session_state[k]
+
+
+def _full_reset():
+    """Clear all session-related keys for a fresh start."""
+    for key in ["session", "selected_case", "active_stage", "page", "timer_start"]:
+        st.session_state.pop(key, None)
+    # Clear attempt counters
+    for spec in STAGES:
+        st.session_state.pop(f"attempts_{spec.name}", None)
+        st.session_state.pop(f"feedback_history_{spec.name}", None)
+    _clear_stage_input_keys()
 
 
 def render_coach_feedback():
@@ -323,13 +612,24 @@ def render_coach_feedback():
             _render_feedback_display(fb)
 
             if fb.passed:
-                st.success("You passed this stage!")
+                st.markdown(
+                    '<div class="feedback-pass">You passed this stage!</div>',
+                    unsafe_allow_html=True,
+                )
+                # Save feedback for report
+                st.session_state[f"feedback_history_{spec.name}"] = fb
                 if st.button("Continue to next stage", key=f"continue_{spec.name}"):
                     _clear_submitted(spec.name)
                     st.rerun()
             else:
-                st.error("Not yet — revise your response and resubmit.")
+                st.markdown(
+                    '<div class="feedback-fail">Not yet -- revise your response and resubmit.</div>',
+                    unsafe_allow_html=True,
+                )
                 if st.button("Revise this stage", key=f"revise_{spec.name}"):
+                    # Increment attempt counter
+                    attempts_key = f"attempts_{spec.name}"
+                    st.session_state[attempts_key] = st.session_state.get(attempts_key, 1) + 1
                     # Clear the stage value so the user can redo it
                     sess = st.session_state.session
                     if spec.multi:
@@ -351,7 +651,10 @@ def render_coach_feedback():
                     st.session_state[feedback_key] = fb
 
             if feedback_key in st.session_state:
-                _render_feedback_display(st.session_state[feedback_key])
+                fb = st.session_state[feedback_key]
+                _render_feedback_display(fb)
+                # Save feedback for report
+                st.session_state[f"feedback_history_{spec.name}"] = fb
 
         if st.button("Continue to next stage", key=f"continue_{spec.name}"):
             _clear_submitted(spec.name)
@@ -362,17 +665,32 @@ def render_coach_feedback():
 
 
 def _render_feedback_display(fb: coach.CoachFeedback):
-    """Render coach feedback in a consistent format."""
+    """Render coach feedback in styled cards."""
     st.markdown("---")
     st.markdown("**Coach Feedback**")
-    st.success(f"**Strengths:** {fb.strengths}")
-    st.warning(f"**Gaps:** {fb.gaps}")
-    st.info(f"**Questions to consider:** {fb.questions}")
+    st.markdown(
+        f'<div class="feedback-card feedback-strengths">'
+        f"<strong>Strengths:</strong> {fb.strengths}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<div class="feedback-card feedback-gaps">'
+        f"<strong>Gaps:</strong> {fb.gaps}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<div class="feedback-card feedback-questions">'
+        f"<strong>Questions to consider:</strong> {fb.questions}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _clear_submitted(stage_name: str):
     """Remove submission-related keys for a stage."""
-    for prefix in ("submitted_", "content_", "feedback_", "items_"):
+    for prefix in ("submitted_", "content_", "feedback_", "items_", "add_counter_"):
         st.session_state.pop(f"{prefix}{stage_name}", None)
 
 
@@ -385,11 +703,17 @@ def render_sidebar():
     with st.sidebar:
         st.header("Session Management")
 
+        # Timer display
+        if st.session_state.get("page") == "session" and st.session_state.get("timer_start"):
+            elapsed_str = _format_elapsed(st.session_state.timer_start)
+            st.markdown(
+                f'<div class="timer-display">{elapsed_str} elapsed</div>',
+                unsafe_allow_html=True,
+            )
+
         if st.session_state.get("page") == "session":
             if st.button("Back to case selection"):
-                for key in ["session", "selected_case", "active_stage", "page"]:
-                    st.session_state.pop(key, None)
-                _clear_stage_input_keys()
+                _full_reset()
                 st.rerun()
 
         st.divider()
@@ -399,10 +723,17 @@ def render_sidebar():
         if not session_files:
             st.caption("No saved sessions yet.")
         else:
-            for sf in session_files[:20]:
-                label = _display_name(sf.stem)
-                if st.button(label, key=f"load_{sf.stem}", use_container_width=True):
-                    _resume_session(sf)
+            # Use selectbox + load button instead of a long list of buttons
+            session_labels = [_display_name(sf.stem) for sf in session_files[:20]]
+            selected_label = st.selectbox(
+                "Select a session",
+                session_labels,
+                index=0,
+                key="session_selector",
+            )
+            selected_idx = session_labels.index(selected_label)
+            if st.button("Load Session", use_container_width=True):
+                _resume_session(session_files[selected_idx])
 
 
 def _resume_session(filepath: Path):
@@ -412,11 +743,23 @@ def _resume_session(filepath: Path):
     case = cases.get_case_by_id(sess.case_id, all_cases)
     if case is None:
         # Build a minimal case dict so the UI can still display
-        case = {"id": sess.case_id, "prompt": f"Case {sess.case_id}", "context": "", "category": "unknown", "difficulty": "unknown"}
+        case = {
+            "id": sess.case_id,
+            "prompt": f"Case {sess.case_id}",
+            "context": "",
+            "category": "unknown",
+            "difficulty": "unknown",
+        }
     st.session_state.session = sess
     st.session_state.selected_case = case
     st.session_state.active_stage = current_stage_index()
     st.session_state.page = "session"
+    # Set timer start to now for resumed sessions
+    st.session_state.timer_start = time.time()
+    # Initialize attempt counters for resumed session
+    for spec in STAGES:
+        if f"attempts_{spec.name}" not in st.session_state:
+            st.session_state[f"attempts_{spec.name}"] = 1
     _clear_stage_input_keys()
     st.rerun()
 
@@ -428,6 +771,9 @@ def _resume_session(filepath: Path):
 
 def main():
     st.set_page_config(page_title="Case Study Practice", page_icon="📋", layout="wide")
+
+    # Inject custom CSS
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
     # Initialize defaults
     if "page" not in st.session_state:
