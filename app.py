@@ -240,44 +240,106 @@ def _format_elapsed(start_time: float) -> str:
 
 
 def _render_case_context(context_text: str):
-    """Render case context, detecting text-based tables and using st.code for them."""
+    """Render case context with visual structure: headers, bullets, tables, and prose."""
     if not context_text:
         return
 
+    import re
+
     lines = context_text.split("\n")
-    buffer = []
-    in_table = False
-
-    def flush_buffer():
-        if buffer:
-            text = "\n".join(buffer)
-            if in_table:
-                st.code(text, language=None)
-            else:
-                st.markdown(text)
-            buffer.clear()
-
-    for line in lines:
-        # Detect table rows: lines containing | character (but not markdown bold etc.)
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         stripped = line.strip()
+
+        # Skip blank lines
+        if not stripped:
+            i += 1
+            continue
+
+        # Detect table rows (pipe-delimited or separator lines)
         is_table_line = "|" in stripped and (
             stripped.startswith("|") or stripped.count("|") >= 2
         )
-        # Also treat separator lines (---+---) as table
         is_separator = bool(stripped) and all(c in "-+| " for c in stripped) and len(stripped) > 3
 
         if is_table_line or is_separator:
-            if not in_table:
-                flush_buffer()
-                in_table = True
-            buffer.append(line)
-        else:
-            if in_table:
-                flush_buffer()
-                in_table = False
-            buffer.append(line)
+            # Collect contiguous table lines
+            table_lines = []
+            while i < len(lines):
+                s = lines[i].strip()
+                is_tl = "|" in s and (s.startswith("|") or s.count("|") >= 2)
+                is_sep = bool(s) and all(c in "-+| " for c in s) and len(s) > 3
+                if is_tl or is_sep:
+                    table_lines.append(lines[i])
+                    i += 1
+                elif not s:
+                    i += 1  # skip blank lines within table area
+                else:
+                    break
+            st.code("\n".join(table_lines), language=None)
+            continue
 
-    flush_buffer()
+        # Detect section headers: lines ending with ":" that are short-ish
+        # e.g. "Current challenges:", "Financial snapshot:", "Customer segments:"
+        if stripped.endswith(":") and len(stripped) < 80 and not stripped.startswith("-"):
+            st.markdown(f"**{stripped}**")
+            i += 1
+            continue
+
+        # Detect indented key-value lines (e.g. "  Mass market (<$100K): 78% of customers")
+        # These often appear under section headers as structured data
+        if re.match(r"^\s{2,}\S", line) and ":" in stripped and not stripped.startswith("-"):
+            # Collect contiguous indented lines
+            indented_lines = []
+            while i < len(lines):
+                s = lines[i]
+                if s.strip() and (re.match(r"^\s{2,}\S", s) or not s.strip()):
+                    if s.strip():
+                        indented_lines.append(f"- {s.strip()}")
+                    i += 1
+                else:
+                    break
+            if indented_lines:
+                st.markdown("\n".join(indented_lines))
+            continue
+
+        # Detect bullet lists (lines starting with -)
+        if stripped.startswith("- "):
+            bullet_lines = []
+            while i < len(lines):
+                s = lines[i].strip()
+                if s.startswith("- "):
+                    bullet_lines.append(s)
+                    i += 1
+                elif not s:
+                    i += 1
+                    break
+                else:
+                    break
+            st.markdown("\n".join(bullet_lines))
+            continue
+
+        # Regular prose paragraph — collect until blank line or structural element
+        para_lines = []
+        while i < len(lines):
+            s = lines[i].strip()
+            if not s:
+                i += 1
+                break
+            # Stop if next line looks like a header, bullet, table, or indented data
+            if (s.endswith(":") and len(s) < 80 and not s.startswith("-")):
+                break
+            if s.startswith("- "):
+                break
+            if "|" in s and (s.startswith("|") or s.count("|") >= 2):
+                break
+            if re.match(r"^\s{2,}\S", lines[i]) and ":" in s:
+                break
+            para_lines.append(s)
+            i += 1
+        if para_lines:
+            st.markdown(" ".join(para_lines))
 
 
 # ---------------------------------------------------------------------------
