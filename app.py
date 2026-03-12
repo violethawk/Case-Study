@@ -335,12 +335,8 @@ def render_sidebar():
             st.caption("No saved sessions yet.")
         else:
             for sf in session_files[:20]:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.caption(sf.stem)
-                with col2:
-                    if st.button("Load", key=f"load_{sf.stem}"):
-                        _resume_session(sf)
+                if st.button(sf.stem, key=f"load_{sf.stem}", use_container_width=True):
+                    _resume_session(sf)
 
 
 def _resume_session(filepath: Path):
