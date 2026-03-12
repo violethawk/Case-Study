@@ -99,38 +99,79 @@ STAGE_CRITERIA: dict[str, str] = {
     ),
 }
 
-SYSTEM_PROMPT = """\
-You are a senior MBB (McKinsey/Bain/BCG) interviewer conducting a live \
-case interview. You are evaluating the candidate's response at one stage \
-of the case.
+# ---------------------------------------------------------------------------
+# Difficulty-specific prompts
+# ---------------------------------------------------------------------------
 
-Your style:
-- Be direct and specific, like a real interviewer. Reference the candidate's \
-exact words when pointing out strengths or gaps.
-- When you find quantitative errors, call them out specifically \
-(e.g., "Your revenue calculation assumes X but the case says Y").
-- Challenge weak assumptions: "What if that assumption is off by 50%? \
-How would that change your answer?"
-- Ask pointed follow-up questions that probe the candidate's logic, \
-not generic advice. A real interviewer would say "Walk me through \
-why you chose that driver" not "Consider other perspectives."
-- NEVER give away the answer or solve the case for the candidate.
-- Be fair but rigorous. A response doesn't need to be perfect to pass, \
-but it must show structured thinking and hit the key requirements.
+DIFFICULTY_LEVELS = ("beginner", "intermediate", "advanced")
 
+_RESPONSE_FORMAT = """
 Respond with ONLY valid JSON in this exact format (no markdown fences):
 {"passed": true/false, "strengths": "...", "gaps": "...", "questions": "..."}
 
 Where:
 - "passed" is true if the response meets the stage criteria, false otherwise
-- "strengths" highlights specifically what the candidate did well \
-(reference their actual words/numbers)
-- "gaps" identifies specific weaknesses — call out logical errors, \
-missing variables, inconsistent numbers, or shallow reasoning
-- "questions" contains 1-2 pointed follow-up questions an MBB interviewer \
-would actually ask to probe deeper (e.g., "You said revenue grows 10% — \
-what's driving that? Is that organic or inorganic?")
+- "strengths" highlights what the candidate did well
+- "gaps" identifies what is missing or weak
+- "questions" contains 1-2 follow-up questions to deepen their reasoning
 """
+
+SYSTEM_PROMPTS: dict[str, str] = {
+    "beginner": (
+        "You are a friendly case interview coach helping someone who is new to "
+        "consulting-style cases. Your job is to teach and encourage.\n\n"
+        "Your style:\n"
+        "- Be warm and supportive. Celebrate what the candidate got right before "
+        "noting gaps.\n"
+        "- When something is missing, explain WHY it matters — teach the principle "
+        "behind it (e.g., 'In a real interview, the interviewer wants to see that "
+        "you size the market before jumping to strategy').\n"
+        "- Give concrete hints about what to add, without giving away the answer "
+        "(e.g., 'Think about what drives revenue — what are the components?').\n"
+        "- Be lenient on passing: if the candidate shows genuine effort and covers "
+        "the basics, let them pass even if the answer isn't polished.\n"
+        "- Ask gentle guiding questions, not aggressive probes.\n"
+        "- NEVER give away the answer or solve the case.\n"
+        + _RESPONSE_FORMAT
+    ),
+    "intermediate": (
+        "You are an experienced case interview coach conducting a practice session. "
+        "You balance encouragement with honest, specific feedback.\n\n"
+        "Your style:\n"
+        "- Reference the candidate's actual words when highlighting strengths or gaps.\n"
+        "- Point out quantitative errors specifically but constructively "
+        "(e.g., 'Your margin calculation seems off — double-check the cost figure').\n"
+        "- Challenge weak assumptions gently: 'What if that assumption is wrong? "
+        "How sensitive is your answer to it?'\n"
+        "- Ask follow-up questions that a real interviewer might ask, but frame them "
+        "as learning opportunities.\n"
+        "- Be fair on passing: the response should show structured thinking and "
+        "cover the key requirements, but doesn't need to be perfect.\n"
+        "- NEVER give away the answer or solve the case.\n"
+        + _RESPONSE_FORMAT
+    ),
+    "advanced": (
+        "You are a senior MBB (McKinsey/Bain/BCG) interviewer conducting a live "
+        "case interview. You evaluate like a real final-round interviewer.\n\n"
+        "Your style:\n"
+        "- Be direct and specific. Reference the candidate's exact words when "
+        "pointing out strengths or gaps.\n"
+        "- Call out quantitative errors sharply "
+        "(e.g., 'Your revenue calculation assumes X but the case says Y').\n"
+        "- Challenge weak assumptions aggressively: 'What if that assumption is "
+        "off by 50%? How would that change your answer?'\n"
+        "- Ask pointed follow-up questions that probe logic — a real interviewer "
+        "would say 'Walk me through why you chose that driver' not "
+        "'Consider other perspectives.'\n"
+        "- Be rigorous on passing: the response must show structured thinking, "
+        "quantitative precision, and hit all key requirements.\n"
+        "- NEVER give away the answer or solve the case.\n"
+        + _RESPONSE_FORMAT
+    ),
+}
+
+# Default for backward compatibility
+SYSTEM_PROMPT = SYSTEM_PROMPTS["advanced"]
 
 DATA_REVEAL_PROMPT = """\
 You are a senior MBB interviewer conducting a live case interview. \
@@ -219,6 +260,7 @@ def provide_feedback(
     stage: str,
     content: Iterable[str] | str,
     case_context: str = "",
+    difficulty: str = "advanced",
 ) -> CoachFeedback:
     """Generate feedback for the given stage and content.
 
@@ -233,6 +275,8 @@ def provide_feedback(
         The user's raw input(s) for this stage.
     case_context : str
         The case prompt and context for more specific feedback.
+    difficulty : str
+        One of "beginner", "intermediate", "advanced".
 
     Returns
     -------
@@ -245,7 +289,7 @@ def provide_feedback(
 
     if _GEMINI_API_KEY:
         try:
-            return _gemini_feedback(stage, texts, case_context)
+            return _gemini_feedback(stage, texts, case_context, difficulty)
         except Exception:
             # Fall back to heuristics on any API error
             pass
@@ -257,15 +301,23 @@ def generate_data_reveal(
     stage: str,
     content: Iterable[str] | str,
     case_context: str = "",
+    difficulty: str = "advanced",
 ) -> DataReveal | None:
     """Generate an interviewer data reveal after the given stage.
 
     Returns ``None`` if the stage doesn't warrant a reveal, AI is not
-    enabled, or the API call fails.
+    enabled, or the API call fails.  Beginner difficulty skips reveals
+    entirely; intermediate only triggers on a subset of stages.
     """
     if stage not in DATA_REVEAL_STAGES:
         return None
     if not _GEMINI_API_KEY:
+        return None
+    # Beginner: no curveballs
+    if difficulty == "beginner":
+        return None
+    # Intermediate: only reveal after calculation (the most impactful stage)
+    if difficulty == "intermediate" and stage != "calculation":
         return None
 
     if isinstance(content, str):
@@ -292,7 +344,12 @@ def _strip_markdown_fences(raw: str) -> str:
     return raw.strip()
 
 
-def _gemini_feedback(stage: str, texts: list[str], case_context: str = "") -> CoachFeedback:
+def _gemini_feedback(
+    stage: str,
+    texts: list[str],
+    case_context: str = "",
+    difficulty: str = "advanced",
+) -> CoachFeedback:
     """Call Gemini 3.1 Flash Lite and parse the structured response."""
     from google import genai
 
@@ -303,10 +360,11 @@ def _gemini_feedback(stage: str, texts: list[str], case_context: str = "") -> Co
     resolved_key = key_aliases.get(stage.lower(), stage.lower())
     criteria = STAGE_CRITERIA.get(resolved_key, "Evaluate the quality and completeness of the response.")
 
+    system_prompt = SYSTEM_PROMPTS.get(difficulty, SYSTEM_PROMPTS["advanced"])
     user_input = "\n".join(texts) if len(texts) > 1 else texts[0]
     context_section = f"\nCase context:\n{case_context}\n" if case_context else ""
     prompt = (
-        f"{SYSTEM_PROMPT}\n\n"
+        f"{system_prompt}\n\n"
         f"Stage: {stage}\n"
         f"{context_section}\n"
         f"Passing criteria for this stage:\n{criteria}\n\n"
@@ -532,3 +590,55 @@ def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
     )
 
     return CoachFeedback(strengths=strengths, gaps=gaps, questions=questions, passed=True)
+
+
+# ---------------------------------------------------------------------------
+# Stage hints (shown to users at beginner/intermediate difficulty)
+# ---------------------------------------------------------------------------
+
+STAGE_HINTS: dict[str, dict[str, str]] = {
+    "restatement": {
+        "hint": "Start by repeating the question back: Who is the client? What do they want to decide? What constraints did the prompt mention?",
+        "structure": "Try this format:\n- **Client:** [who]\n- **Question:** [what they need to decide]\n- **Key constraints:** [time, budget, scope]\n- **Clarifying questions:** [anything unclear]",
+    },
+    "frame": {
+        "hint": "Pick a framework that fits the problem type. For growth questions, think revenue vs. cost. For market entry, think market attractiveness vs. competitive position.",
+        "structure": "A good frame includes:\n- **Framework chosen:** [name and why]\n- **Key areas to analyze:** [2-4 buckets]\n- **How they connect:** [which area drives the answer most]",
+    },
+    "assumptions": {
+        "hint": "State what you're taking as given before doing math. Good assumptions are specific and testable (e.g., 'US population is 330M' not 'the market is big').",
+        "structure": "For each assumption:\n- **Assumption:** [specific claim]\n- **Justification:** [why you believe it]\n- **Impact if wrong:** [high/medium/low]",
+    },
+    "equation": {
+        "hint": "Break the problem into a formula. For example, Profit = Revenue - Cost, or Revenue = Price x Volume. Which variables do you know vs. need to estimate?",
+        "structure": "Write your equation, then list:\n- **Known variables:** [from the case]\n- **Variables to estimate:** [what you'll calculate]\n- **Key driver:** [which variable matters most]",
+    },
+    "structure": {
+        "hint": "Choose top-down (start big, subdivide) or bottom-up (start small, multiply up). Top-down example: US population → % in cities → % who drink coffee → cups per day.",
+        "structure": "Outline your approach:\n- **Method:** [top-down or bottom-up]\n- **Starting point:** [your anchor number]\n- **Steps:** [how you'll break it down]\n- **Segments:** [any key splits like urban/rural]",
+    },
+    "setup": {
+        "hint": "Before calculating, map out what you're solving for and what variables you need. Think of it like setting up an algebra problem before solving.",
+        "structure": "Set up clearly:\n- **Solving for:** [the target quantity]\n- **Key formula:** [relationship between variables]\n- **Data from case:** [numbers you were given]\n- **Approach:** [step-by-step plan]",
+    },
+    "calculation": {
+        "hint": "Show every step of your math. Label your units. Round to keep numbers manageable — interviewers care about the approach more than decimal precision.",
+        "structure": "For each step:\n- **Step N:** [what you're calculating]\n- **Math:** [the actual computation]\n- **Result:** [intermediate answer with units]",
+    },
+    "sanity_check": {
+        "hint": "Compare your answer to something you know. If you estimated 1M coffee shops in the US but Starbucks has 16K, that's a red flag. Try a completely different approach to see if you get a similar number.",
+        "structure": "Check your work:\n- **Your estimate:** [final number]\n- **Benchmark:** [a known data point to compare against]\n- **Alternative approach:** [quick back-of-envelope from a different angle]\n- **Assessment:** [reasonable / too high / too low]",
+    },
+    "sensitivity": {
+        "hint": "Which of your assumptions would change the answer most if they were wrong? Try varying your top 2-3 assumptions by +/- 50% and see what happens.",
+        "structure": "For each key variable:\n- **Variable:** [name]\n- **Base case:** [your assumption]\n- **If +50%:** [new result]\n- **If -50%:** [new result]\n- **Conclusion:** [which variable matters most]",
+    },
+    "conclusion": {
+        "hint": "State your recommendation clearly and back it up. A great conclusion has: (1) the answer, (2) the top 2-3 reasons, (3) one key risk.",
+        "structure": "Structure your answer:\n- **Recommendation:** [clear, one-sentence answer]\n- **Supporting reasons:** [2-3 key points from your analysis]\n- **Key risk:** [what could make this wrong]\n- **Next steps:** [what you'd investigate further]",
+    },
+    "additional_insights": {
+        "hint": "Go beyond the question. Think about: How would competitors react? What could go wrong during implementation? Are there adjacent opportunities?",
+        "structure": "Consider:\n- **Implementation risks:** [what could go wrong]\n- **Competitive response:** [how rivals might react]\n- **Adjacent opportunities:** [related ideas worth exploring]\n- **Timeline considerations:** [short vs. long term]",
+    },
+}

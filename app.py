@@ -10,6 +10,7 @@ import streamlit as st
 from pathlib import Path
 
 from case_study import cases, coach, validation
+from case_study.coach import DIFFICULTY_LEVELS, STAGE_HINTS
 from case_study.session import Session, list_sessions
 from case_study.engine import (
     STAGES_BY_CATEGORY,
@@ -431,6 +432,22 @@ def render_case_selection():
     elif st.session_state.get("coach_enabled"):
         st.caption("Heuristic coaching (set GEMINI_API_KEY for AI-powered gating).")
 
+    # Difficulty selector
+    difficulty_labels = {
+        "beginner": "Beginner -- Friendly coach with hints and structure guides",
+        "intermediate": "Intermediate -- Balanced feedback with occasional curveballs",
+        "advanced": "Advanced -- MBB interviewer simulation with full rigor",
+    }
+    current_diff = st.session_state.get("difficulty", "intermediate")
+    selected_diff = st.radio(
+        "Difficulty",
+        options=list(DIFFICULTY_LEVELS),
+        index=list(DIFFICULTY_LEVELS).index(current_diff),
+        format_func=lambda d: difficulty_labels[d],
+        key="difficulty_radio",
+    )
+    st.session_state.difficulty = selected_diff
+
     if not filtered:
         st.info("No cases match the selected filters.")
         return
@@ -625,6 +642,7 @@ def _render_previous_response(stage_name: str):
 def _render_framework_input(stage_name: str):
     """Render framework selection + explanation for frame/structure stages."""
     _render_previous_response(stage_name)
+    _render_stage_hints(stage_name)
     frameworks = load_frameworks()
 
     selected = None
@@ -668,9 +686,31 @@ def _render_framework_input(stage_name: str):
         _after_stage_submit(stage_name, response)
 
 
+def _render_stage_hints(stage_name: str):
+    """Show hint and structure guide for beginner/intermediate difficulty."""
+    difficulty = st.session_state.get("difficulty", "intermediate")
+    if difficulty == "advanced":
+        return
+    hints = STAGE_HINTS.get(stage_name)
+    if not hints:
+        return
+    if difficulty == "beginner":
+        # Show both hint and structure
+        with st.expander("Hint", expanded=True):
+            st.info(hints["hint"])
+        with st.expander("Suggested structure", expanded=True):
+            st.markdown(hints["structure"])
+    else:
+        # Intermediate: collapsed hints available on demand
+        with st.expander("Need a hint?"):
+            st.info(hints["hint"])
+            st.markdown(hints["structure"])
+
+
 def _render_single_input(stage_name: str, stage_idx: int):
     """Render a text area for a single-response stage."""
     _render_previous_response(stage_name)
+    _render_stage_hints(stage_name)
     text_key = f"input_{stage_name}"
     response = st.text_area(
         f"Your {STAGE_DISPLAY_NAMES.get(stage_name, _display_name(stage_name))}:",
@@ -694,6 +734,7 @@ def _render_single_input(stage_name: str, stage_idx: int):
 def _render_multi_input(stage_name: str, item_name: str, stage_idx: int):
     """Render an add-one-at-a-time interface for multi-item stages."""
     _render_previous_response(stage_name)
+    _render_stage_hints(stage_name)
     items_key = f"items_{stage_name}"
     if items_key not in st.session_state:
         st.session_state[items_key] = []
@@ -823,6 +864,7 @@ def render_coach_feedback():
     ai_gating = st.session_state.get("coach_enabled", False) and coach.is_ai_enabled()
     stages = _get_active_stages()
     case_context = _get_case_context_text()
+    difficulty = st.session_state.get("difficulty", "intermediate")
 
     for spec in stages:
         submitted_key = f"submitted_{spec.name}"
@@ -837,7 +879,7 @@ def render_coach_feedback():
             if feedback_key not in st.session_state:
                 content = st.session_state[f"content_{spec.name}"]
                 with st.spinner("Interviewer is evaluating your response..."):
-                    fb = coach.provide_feedback(spec.name, content, case_context)
+                    fb = coach.provide_feedback(spec.name, content, case_context, difficulty)
                 st.session_state[feedback_key] = fb
 
             fb = st.session_state[feedback_key]
@@ -855,7 +897,7 @@ def render_coach_feedback():
                 if reveal_key not in st.session_state:
                     content = st.session_state.get(f"content_{spec.name}", "")
                     with st.spinner("Interviewer is preparing new information..."):
-                        reveal = coach.generate_data_reveal(spec.name, content, case_context)
+                        reveal = coach.generate_data_reveal(spec.name, content, case_context, difficulty)
                     if reveal and reveal.reveal:
                         st.session_state[reveal_key] = reveal
                 # Show data reveal if generated
@@ -895,7 +937,7 @@ def render_coach_feedback():
             if feedback_key not in st.session_state:
                 if st.button("Get Coach Feedback", key=f"coach_btn_{spec.name}"):
                     content = st.session_state[f"content_{spec.name}"]
-                    fb = coach.provide_feedback(spec.name, content, case_context)
+                    fb = coach.provide_feedback(spec.name, content, case_context, difficulty)
                     st.session_state[feedback_key] = fb
 
             if feedback_key in st.session_state:
@@ -1031,6 +1073,8 @@ def main():
         st.session_state.page = "selection"
     if "coach_enabled" not in st.session_state:
         st.session_state.coach_enabled = True
+    if "difficulty" not in st.session_state:
+        st.session_state.difficulty = "intermediate"
 
     render_sidebar()
 
