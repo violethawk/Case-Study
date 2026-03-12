@@ -28,10 +28,16 @@ STAGE_CRITERIA: dict[str, str] = {
         "(2) identify the client/decision-maker, (3) note any key constraints "
         "or goals mentioned in the prompt. Missing any of these = not passed."
     ),
+    "framework": (
+        "The user must: (1) select and name a specific framework, "
+        "(2) briefly explain why it fits this problem type. "
+        "Simply naming a framework without justification = not passed."
+    ),
     "frame": (
-        "The user must: (1) choose and name a specific framework or structure, "
-        "(2) explain why it fits this problem, (3) outline the key areas or "
-        "buckets they will analyze. Vague or unstructured answers = not passed."
+        "The user must: (1) explain how they will apply their chosen framework, "
+        "(2) outline the key areas or buckets they will analyze, "
+        "(3) indicate which area is likely most important. "
+        "Vague or unstructured answers = not passed."
     ),
     "assumptions": (
         "The user must: (1) state at least 2 explicit assumptions, "
@@ -419,15 +425,157 @@ def _gemini_data_reveal(stage: str, texts: list[str], case_context: str) -> Data
 
 
 # ---------------------------------------------------------------------------
-# Heuristic fallback (always passes — cannot meaningfully evaluate)
+# Heuristic rules for pass/fail without an LLM
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+# Each rule: min_words (for single), min_items (for multi), min_item_words,
+# required_patterns (must match at least one, case-insensitive)
+HEURISTIC_RULES: dict[str, dict] = {
+    "restatement": {
+        "min_words": 15,
+        "patterns": [r"\bclient\b", r"\bquestion\b", r"\bdecid", r"\bgoal\b",
+                     r"\bobjective\b", r"\bdetermin", r"\?"],
+    },
+    "framework": {
+        "min_words": 5,
+        "patterns": [r"\bframework\b", r"\bporter", r"\b3c", r"\b4p", r"\bswot\b",
+                     r"\bprofit", r"\bcost.*benefit", r"\bvalue.chain", r"\bmece\b",
+                     r"\bstructur", r"\bsegment", r"\bsupply.*demand"],
+    },
+    "frame": {
+        "min_words": 20,
+        "patterns": [r"\bframework\b", r"\bstructur", r"\banalyz", r"\bbucket",
+                     r"\barea\b", r"\bdriver", r"\bcomponent", r"\bfactor"],
+    },
+    "assumptions": {
+        "min_items": 2,
+        "min_item_words": 6,
+    },
+    "hypotheses": {
+        "min_items": 2,
+        "min_item_words": 6,
+    },
+    "equation": {
+        "min_words": 10,
+        "patterns": [r"=", r"\*", r"\btimes\b", r"\bdivid", r"\bminus\b",
+                     r"\bplus\b", r"\brevenue\b", r"\bcost\b", r"\bprofit\b",
+                     r"\bprice\b", r"\bvolume\b", r"\bmargin\b", r"x\s"],
+    },
+    "calculation": {
+        "min_items": 1,
+        "min_item_words": 5,
+        "require_numbers": True,
+    },
+    "conclusion": {
+        "min_words": 20,
+        "patterns": [r"\brecommend", r"\bshould\b", r"\bsuggest", r"\bpropose",
+                     r"\bconclude", r"\btherefore\b", r"\bdecision\b",
+                     r"\badvise\b", r"\bpursue\b", r"\bfocus\b"],
+    },
+    "additional_insights": {
+        "min_words": 15,
+        "patterns": [r"\brisk", r"\bcompetit", r"\bimplement", r"\bregulat",
+                     r"\bopportunit", r"\blong.term", r"\bmonitor", r"\bchalleng",
+                     r"\bsecond.order", r"\badjacent"],
+    },
+    "structure": {
+        "min_words": 15,
+        "patterns": [r"\btop.down", r"\bbottom.up", r"\bsegment", r"\bcomponent",
+                     r"\bbreak", r"\bdecompos", r"\bsplit", r"\bdivid",
+                     r"\bpopulation", r"\bmarket"],
+    },
+    "setup": {
+        "min_words": 15,
+        "patterns": [r"\bsolv", r"\bvariable", r"\bformula", r"\bcalculat",
+                     r"\bapproach", r"\brelationship", r"\bequation",
+                     r"\bidentif"],
+    },
+    "sanity_check": {
+        "min_words": 15,
+        "patterns": [r"\bbenchmark", r"\bcompar", r"\breasonab", r"\bmagnitude",
+                     r"\bcheck", r"\bverif", r"\balternativ", r"\bsmell",
+                     r"\bknown\b", r"\bexpect"],
+    },
+    "sensitivity": {
+        "min_words": 15,
+        "patterns": [r"\bsensitiv", r"\bimpact", r"\bvary", r"\bchang",
+                     r"\bassumption", r"\bdriver", r"\brange\b", r"\buncertain"],
+    },
+    "analyses": {
+        "min_items": 2,
+        "min_item_words": 6,
+    },
+    "updates": {
+        "min_items": 1,
+        "min_item_words": 8,
+        "patterns": [r"\bstrengthen", r"\bweaken", r"\bconfirm", r"\breject",
+                     r"\bsupport", r"\bchang", r"\bupdat", r"\brevis",
+                     r"\binvalidat", r"\brevised"],
+    },
+}
+
+
+def _check_heuristic_rules(stage: str, texts: list[str]) -> tuple[bool, list[str]]:
+    """Check heuristic rules for a stage. Returns (passed, failure_reasons)."""
+    key_aliases = {"analyze": "analyses", "update": "updates", "conclude": "conclusion"}
+    resolved = key_aliases.get(stage.lower(), stage.lower())
+    rules = HEURISTIC_RULES.get(resolved, {})
+    if not rules:
+        return True, []
+
+    failures: list[str] = []
+    combined = " ".join(t.strip() for t in texts)
+    word_count = len(combined.split())
+    is_multi = len(texts) > 1 or resolved in {"assumptions", "hypotheses", "analyses",
+                                                "updates", "calculation"}
+
+    # Min words check (single-response stages)
+    min_words = rules.get("min_words", 0)
+    if min_words and not is_multi and word_count < min_words:
+        failures.append(f"Response too brief ({word_count} words, minimum {min_words}).")
+
+    # Min items check (multi-response stages)
+    min_items = rules.get("min_items", 0)
+    if min_items and len(texts) < min_items:
+        failures.append(f"Too few items ({len(texts)}, minimum {min_items}).")
+
+    # Min words per item (multi-response stages)
+    min_item_words = rules.get("min_item_words", 0)
+    if min_item_words and is_multi:
+        for i, t in enumerate(texts):
+            if len(t.split()) < min_item_words:
+                failures.append(f"Item {i+1} is too brief ({len(t.split())} words, minimum {min_item_words}).")
+                break  # Only flag the first short item
+
+    # Required patterns check
+    patterns = rules.get("patterns", [])
+    if patterns:
+        matched = any(_re.search(p, combined, _re.IGNORECASE) for p in patterns)
+        if not matched:
+            failures.append("Missing key terminology expected for this stage.")
+
+    # Numbers required check (calculation)
+    if rules.get("require_numbers"):
+        has_numbers = any(_re.search(r"\d", t) for t in texts)
+        if not has_numbers:
+            failures.append("Calculation steps should include specific numbers.")
+
+    return len(failures) == 0, failures
+
+
+# ---------------------------------------------------------------------------
+# Heuristic fallback
 # ---------------------------------------------------------------------------
 
 def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
-    """Generate deterministic feedback based on input length and stage.
+    """Generate deterministic feedback based on heuristic rules.
 
-    The heuristic backend always sets ``passed=True`` because it cannot
-    meaningfully evaluate response quality without an LLM.
+    Uses structural checks (word count, keyword patterns, item counts)
+    to provide a pass/fail gate even without an LLM.
     """
+    passed, failures = _check_heuristic_rules(stage, texts)
     total_length = sum(len(t.strip()) for t in texts)
 
     # Strengths based on response length
@@ -448,6 +596,11 @@ def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
     # Stage-specific gaps
     stage_key = stage.lower()
     gaps_map = {
+        "framework": (
+            "Have you chosen a framework that fits this specific problem type? "
+            "Consider whether your framework covers the key dimensions of the case. "
+            "A good framework choice should be justified — explain why this one fits better than alternatives."
+        ),
         "restatement": (
             "Did you capture all the key elements of the problem? Check that you've identified the client, "
             "the core question, any constraints mentioned, and the desired outcome. "
@@ -525,6 +678,10 @@ def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
 
     # Stage-specific questions
     questions_map = {
+        "framework": (
+            "Why did you choose this framework over alternatives? "
+            "Does it cover both the supply side and demand side of the problem?"
+        ),
         "restatement": (
             "Have you identified who the client is and what they ultimately want to achieve? "
             "Are there any terms or concepts in the prompt you'd want the interviewer to clarify?"
@@ -590,7 +747,11 @@ def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
         "What other perspectives or dimensions might enrich your reasoning?",
     )
 
-    return CoachFeedback(strengths=strengths, gaps=gaps, questions=questions, passed=True)
+    if failures:
+        failure_text = "Your response did not meet the minimum requirements: " + "; ".join(failures)
+        gaps = failure_text + "\n\n" + gaps
+
+    return CoachFeedback(strengths=strengths, gaps=gaps, questions=questions, passed=passed)
 
 
 # ---------------------------------------------------------------------------
@@ -598,52 +759,132 @@ def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
 # ---------------------------------------------------------------------------
 
 STAGE_HINTS: dict[str, dict[str, str]] = {
+    "framework": {
+        "hint": "Pick the framework that best fits the problem type. Profitability for profit decline, 3C's for competitive strategy, Porter's Five Forces for industry analysis.",
+        "structure": "Include:\n- **Framework:** [name]\n- **Why this framework:** [1-2 sentences on why it fits this problem better than alternatives]",
+        "mbb_context": "MBB interviewers test whether you can choose the RIGHT tool for the job. Picking a generic framework signals weak business judgment. The best candidates match framework to problem type in under 30 seconds.",
+        "example_standard": "I'll use a profitability framework.",
+        "example_elite": "This is fundamentally a margin compression problem, so I'll use the Profitability framework — breaking the issue into Revenue (Price x Volume) and Costs (Fixed vs Variable). This lets me isolate whether the client's problem is demand-side or cost-side before going deeper.",
+    },
     "restatement": {
         "hint": "Start by repeating the question back: Who is the client? What do they want to decide? What constraints did the prompt mention?",
         "structure": "Try this format:\n- **Client:** [who]\n- **Question:** [what they need to decide]\n- **Key constraints:** [time, budget, scope]\n- **Clarifying questions:** [anything unclear]",
+        "mbb_context": "Every MBB case starts with restating the problem. Interviewers use this to test whether you can cut through noise and identify the REAL question. Getting this wrong means solving the wrong problem for 25 minutes.",
+        "example_standard": "The client is a bank that wants to grow.",
+        "example_elite": "Our client is a mid-size regional bank whose CEO wants to determine whether to invest in digital banking capabilities. The core question is: will this investment generate sufficient ROI within 3 years to justify the capital outlay, given competitive pressure from fintechs? I'd want to clarify: what's their current digital penetration, and is there a specific ROI threshold the board requires?",
     },
     "frame": {
-        "hint": "Pick a framework that fits the problem type. For growth questions, think revenue vs. cost. For market entry, think market attractiveness vs. competitive position.",
-        "structure": "A good frame includes:\n- **Framework chosen:** [name and why]\n- **Key areas to analyze:** [2-4 buckets]\n- **How they connect:** [which area drives the answer most]",
+        "hint": "Now apply your framework. Identify 2-4 key areas you'll analyze and explain which one you think matters most.",
+        "structure": "A good frame includes:\n- **Key areas to analyze:** [2-4 buckets]\n- **Priority area:** [which one you'll investigate first and why]\n- **How they connect:** [which area drives the answer most]",
+        "mbb_context": "Framing is where interviewers decide if you think like a consultant. A MECE structure (mutually exclusive, collectively exhaustive) shows you won't miss anything. The elite move is to state which bucket you'll attack FIRST and why — it shows you already have a hypothesis forming.",
+        "example_standard": "I'll look at the market, competition, and internal capabilities.",
+        "example_elite": "Using the 3C's, I'll structure my analysis into: (1) Customer — are digital banking needs growing and where; (2) Competition — what are fintechs offering that we aren't; (3) Capabilities — can we build or buy the technology. I'll start with Competition because if fintechs have already locked up the digital segment, the investment thesis changes entirely. Let me begin there.",
     },
     "assumptions": {
         "hint": "State what you're taking as given before doing math. Good assumptions are specific and testable (e.g., 'US population is 330M' not 'the market is big').",
         "structure": "For each assumption:\n- **Assumption:** [specific claim]\n- **Justification:** [why you believe it]\n- **Impact if wrong:** [high/medium/low]",
+        "mbb_context": "Consultants live and die by assumptions. MBB interviewers want to see that you (1) know what you're assuming vs. what's fact, (2) can justify each assumption, and (3) understand which assumptions matter most. The elite move: flag which assumption you'd test first if you had real data.",
+        "example_standard": "I assume the market is growing.",
+        "example_elite": "I'm assuming: (1) US digital banking adoption is ~65% and growing at 8% annually — this is my highest-impact assumption because if adoption is plateauing, the market opportunity shrinks significantly. (2) Average customer acquisition cost for digital banking is ~$200, based on fintech benchmarks. I'd want to validate assumption #1 first because it determines whether we're entering a growing or mature market.",
     },
     "hypotheses": {
-        "hint": "Form a testable guess about what's driving the problem. For example: 'I hypothesize that revenue decline is driven by pricing pressure rather than volume loss.' Good hypotheses are specific and can be confirmed or refuted with data.",
-        "structure": "For each hypothesis:\n- **Hypothesis:** [specific, testable claim]\n- **Category:** [demand/supply/internal/external]\n- **How to test:** [what data or analysis would confirm or refute it]\n- **Why it matters:** [impact if true]",
+        "hint": "Form a testable guess about what's driving the problem. Use the language of proof: 'I hypothesize X. If true, we should see Y in the data. If false, I'll pivot to Z.'",
+        "structure": "For each hypothesis:\n- **Hypothesis:** [specific, testable claim]\n- **What would confirm it:** [data or evidence]\n- **What would rule it out:** [contradicting evidence]\n- **If ruled out, pivot to:** [next branch]",
+        "mbb_context": "Hypothesis-driven thinking is THE skill that separates MBB from other consulting. You're not exploring — you're testing. Elite candidates use 'ruling in/out' language: 'This data rules out X as the primary driver. I'm moving to Y.' If a branch yields nothing, kill it in 20 seconds and pivot.",
+        "example_standard": "Maybe the problem is costs. Or maybe it's revenue.",
+        "example_elite": "Hypothesis 1: The profit decline is driven by customer churn in the premium segment, not overall volume loss. If true, we should see premium segment revenue declining faster than mass market. If premium is stable, I'll rule out churn and pivot to pricing pressure.\n\nHypothesis 2: Rising input costs (not pricing) are compressing margins. If true, COGS as a % of revenue should be trending up over 3 years. If COGS is flat, I'm ruling out cost-side and focusing purely on the revenue story.",
     },
     "equation": {
-        "hint": "Break the problem into a formula. For example, Profit = Revenue - Cost, or Revenue = Price x Volume. Which variables do you know vs. need to estimate?",
-        "structure": "Write your equation, then list:\n- **Known variables:** [from the case]\n- **Variables to estimate:** [what you'll calculate]\n- **Key driver:** [which variable matters most]",
+        "hint": "Break the problem into a formula. Before calculating, pre-commit: 'If this variable is above X, I'll recommend A. If below, I'll recommend B.' This builds a decision bridge.",
+        "structure": "Write your equation, then:\n- **Known variables:** [from the case]\n- **Variables to estimate:** [what you'll calculate]\n- **Pre-commitment:** [what the result means for your recommendation]",
+        "mbb_context": "MBB interviewers want to see that your math has PURPOSE. Pre-commitment is the elite technique: before touching numbers, state what the result will mean. 'If margin exceeds 15%, I'll recommend expanding. If below 10%, I'll recommend restructuring.' This shows you're testing a decision, not just crunching numbers.",
+        "example_standard": "Revenue = Price x Volume. Let me calculate the revenue.",
+        "example_elite": "Profit = Revenue - Costs, where Revenue = Price x Volume and Costs = Fixed + Variable. Before I calculate: if the contribution margin is above 30%, this business is worth investing in and the problem is likely scale. If below 15%, we have a fundamental unit economics problem and I'll recommend restructuring before growth. Let me solve for contribution margin first.",
     },
     "structure": {
-        "hint": "Choose top-down (start big, subdivide) or bottom-up (start small, multiply up). Top-down example: US population → % in cities → % who drink coffee → cups per day.",
-        "structure": "Outline your approach:\n- **Method:** [top-down or bottom-up]\n- **Starting point:** [your anchor number]\n- **Steps:** [how you'll break it down]\n- **Segments:** [any key splits like urban/rural]",
+        "hint": "Choose top-down (start big, subdivide) or bottom-up (start small, multiply up). State your approach before calculating.",
+        "structure": "Outline your approach:\n- **Method:** [top-down or bottom-up]\n- **Starting point:** [your anchor number]\n- **Steps:** [how you'll break it down]\n- **Pre-commitment:** [what range would surprise you and why]",
+        "mbb_context": "In market-sizing cases, the structure IS the answer. MBB interviewers care less about the exact number and more about whether your decomposition is logical and MECE. The elite move: state your expected range before calculating, then check if your answer lands in it.",
+        "example_standard": "I'll use a top-down approach starting with population.",
+        "example_elite": "I'll use a top-down approach: US population (330M) → % who are pet owners (~67%) → average annual pet food spend → total market. Before calculating: I'd expect the US pet food market to be somewhere between $30B and $60B — if my estimate falls outside that range, I'll know I've made an error in my segmentation and will re-examine my assumptions.",
     },
     "setup": {
-        "hint": "Before calculating, map out what you're solving for and what variables you need. Think of it like setting up an algebra problem before solving.",
-        "structure": "Set up clearly:\n- **Solving for:** [the target quantity]\n- **Key formula:** [relationship between variables]\n- **Data from case:** [numbers you were given]\n- **Approach:** [step-by-step plan]",
+        "hint": "Before calculating, map out what you're solving for and what variables you need. Pre-commit to what the answer means for the decision.",
+        "structure": "Set up clearly:\n- **Solving for:** [the target quantity]\n- **Key formula:** [relationship between variables]\n- **Data from case:** [numbers you were given]\n- **Pre-commitment:** [what the result means for the recommendation]",
+        "mbb_context": "Setting up the problem cleanly prevents arithmetic errors and shows structured thinking. The elite move is pre-commitment: 'If break-even is under 10K units, this is viable. Above 50K, we should walk away.' You've built the decision bridge before you know the answer.",
+        "example_standard": "I need to find the break-even point. Break-even = Fixed Costs / Contribution Margin.",
+        "example_elite": "I'm solving for the break-even volume in units. Break-even = Fixed Costs / (Price - Variable Cost). From the case: Fixed Costs = $500K, Variable Cost = $20/unit. Before I solve: if break-even is under 10,000 units, this product is clearly viable given the client's distribution capacity of 50K units. If it's above 30,000, we have a problem. Let me calculate.",
     },
     "calculation": {
-        "hint": "Show every step of your math. Label your units. Round to keep numbers manageable — interviewers care about the approach more than decimal precision.",
-        "structure": "For each step:\n- **Step N:** [what you're calculating]\n- **Math:** [the actual computation]\n- **Result:** [intermediate answer with units]",
+        "hint": "Show every step. Label units. After each result, state what it MEANS: 'This rules out X' or 'This confirms my hypothesis about Y.'",
+        "structure": "For each step:\n- **Step N:** [what you're calculating]\n- **Math:** [the actual computation]\n- **Result:** [answer with units]\n- **So what:** [what this means for the case]",
+        "mbb_context": "MBB interviewers don't care about mental math speed — they care about structured logic. After each calculation step, the elite move is to interpret the result: 'Revenue of $12M rules out market growth as the driver — we're clearly losing share.' Every number should advance your argument.",
+        "example_standard": "Revenue = 1000 x $50 = $50,000",
+        "example_elite": "Step 1: Market revenue = 100K customers x $120 avg spend = $12M. Step 2: Our share = $3M / $12M = 25%. This is actually healthy — it rules out market positioning as the primary issue. The problem must be on the cost side. Let me calculate margin next to confirm.",
     },
     "sanity_check": {
-        "hint": "Compare your answer to something you know. If you estimated 1M coffee shops in the US but Starbucks has 16K, that's a red flag. Try a completely different approach to see if you get a similar number.",
-        "structure": "Check your work:\n- **Your estimate:** [final number]\n- **Benchmark:** [a known data point to compare against]\n- **Alternative approach:** [quick back-of-envelope from a different angle]\n- **Assessment:** [reasonable / too high / too low]",
+        "hint": "Don't just give one number — give a sanity RANGE. 'My estimate is $500M, with a range of $300M-$700M. The upside assumes X; the downside assumes Y.'",
+        "structure": "Check your work:\n- **Your estimate:** [final number]\n- **Sanity range:** [low end — high end]\n- **What drives the range:** [key variable causing the spread]\n- **Cross-check:** [alternative approach or known benchmark]",
+        "mbb_context": "The Sanity Range Trick separates good from great. Instead of defending a single number, give a confidence interval: '$500M estimate, sanity range $300M-$700M. The upside assumes a 20% premium on organic products.' This shows you understand the sensitivity of your assumptions and aren't overconfident in a point estimate.",
+        "example_standard": "My estimate of 200K coffee shops seems about right.",
+        "example_elite": "My estimate is 200K coffee shops. Sanity range: 150K to 280K. The lower bound assumes I'm overestimating rural density; the upper bound includes non-traditional locations (gas stations, grocery). Cross-check: Starbucks has ~16K locations and roughly 8% market share, implying ~200K total — right in my range. I'm confident in the $200K estimate.",
     },
     "sensitivity": {
-        "hint": "Which of your assumptions would change the answer most if they were wrong? Try varying your top 2-3 assumptions by +/- 50% and see what happens.",
-        "structure": "For each key variable:\n- **Variable:** [name]\n- **Base case:** [your assumption]\n- **If +50%:** [new result]\n- **If -50%:** [new result]\n- **Conclusion:** [which variable matters most]",
+        "hint": "Identify the 2-3 variables that swing the answer most. Show the range of outcomes and state which variable you'd research first.",
+        "structure": "For each key variable:\n- **Variable:** [name]\n- **Base case:** [your assumption]\n- **Upside / downside:** [what happens if ±50%]\n- **Decision impact:** [does the recommendation change?]",
+        "mbb_context": "Sensitivity analysis shows you understand that business decisions happen under uncertainty. The elite move: after testing variables, state clearly which ones change the decision. 'If customer acquisition cost doubles, the project NPV goes negative — this is the kill variable we need to validate before committing.'",
+        "example_standard": "If costs go up, profit goes down.",
+        "example_elite": "The three highest-impact variables: (1) Customer acquisition cost: at $200 (base), NPV = $2M. At $400, NPV goes negative — this is the kill variable. (2) Retention rate: 85% base → $2M NPV. At 70%, NPV drops to $0.5M — still positive, so retention is important but not decisive. (3) ARPU: base $50. Even at $35 (-30%), NPV stays positive. Conclusion: the decision hinges on acquisition cost. I'd recommend validating this with a small pilot before full rollout.",
     },
     "conclusion": {
-        "hint": "State your recommendation clearly and back it up. A great conclusion has: (1) the answer, (2) the top 2-3 reasons, (3) one key risk.",
+        "hint": "Lead with a clear one-sentence recommendation. Support with 2-3 reasons. Acknowledge the key risk. Use decisive language: 'I recommend X because Y.'",
         "structure": "Structure your answer:\n- **Recommendation:** [clear, one-sentence answer]\n- **Supporting reasons:** [2-3 key points from your analysis]\n- **Key risk:** [what could make this wrong]\n- **Next steps:** [what you'd investigate further]",
+        "mbb_context": "The conclusion is your 'elevator pitch' to the CEO. MBB partners want a clear, decisive recommendation — not a wishy-washy 'it depends.' The elite move: tie your recommendation back to the data. 'The 25% margin and $12M market confirm this is worth pursuing. The key risk is acquisition cost, which I'd validate with a 90-day pilot.'",
+        "example_standard": "I think the company should probably consider expanding into digital banking.",
+        "example_elite": "I recommend the client invest $5M in digital banking capabilities over 18 months. Three reasons: (1) the digital segment is growing at 15% vs 2% for traditional — we're ceding share to fintechs by not competing; (2) our analysis shows positive unit economics with break-even at 8K customers, well within reach given our 50K existing base; (3) the competitive window is narrowing — two more quarters of inaction and fintechs will have locked up the segment. Key risk: customer acquisition cost. I'd validate with a 3-month pilot in two metro markets before full rollout.",
     },
     "additional_insights": {
         "hint": "Go beyond the question. Think about: How would competitors react? What could go wrong during implementation? Are there adjacent opportunities?",
         "structure": "Consider:\n- **Implementation risks:** [what could go wrong]\n- **Competitive response:** [how rivals might react]\n- **Adjacent opportunities:** [related ideas worth exploring]\n- **Timeline considerations:** [short vs. long term]",
+        "mbb_context": "This stage separates 'good' from 'partner-track' candidates. MBB interviewers want to see that you can zoom out from the immediate problem and think about second-order effects, competitive dynamics, and implementation realities. The elite move: identify the one thing that could kill the deal that nobody asked about.",
+        "example_standard": "The company should also think about risks and opportunities.",
+        "example_elite": "Three things the board should consider beyond our core recommendation: (1) Competitive response — if we launch digital, expect incumbent banks to respond within 6 months. We need a 'fast follower' defense plan. (2) Regulatory risk — digital banking regulations are tightening in 3 states; we should build compliance into the MVP, not bolt it on later. (3) Adjacent opportunity — our digital platform could serve as a distribution channel for insurance products, potentially adding $2-3M in year-2 revenue that isn't in our base case.",
     },
+}
+
+
+# ---------------------------------------------------------------------------
+# MBB Pro Tips (shown at intermediate/advanced alongside examples)
+# ---------------------------------------------------------------------------
+
+MBB_PRO_TIPS: dict[str, str] = {
+    "hypotheses": (
+        "**Elite technique — Language of Proof:** Don't just 'look at' data. "
+        "Use it to RULE IN or RULE OUT branches. Say: 'This data rules out X "
+        "as the primary driver. I'm moving to Y.' If a branch yields nothing, "
+        "kill it in 20 seconds and pivot."
+    ),
+    "equation": (
+        "**Elite technique — Pre-Commitment:** Before touching a calculator, "
+        "tell the interviewer what the result will MEAN. 'If margin exceeds 15%, "
+        "I'll recommend expanding. If below 10%, I'll recommend restructuring.' "
+        "This builds a decision bridge before you know the answer."
+    ),
+    "calculation": (
+        "**Elite technique — Interpret Every Number:** After each calculation, "
+        "state what it means: 'Revenue of $12M rules out market decline — "
+        "we're losing share.' Every number should advance your argument, "
+        "not just sit on the page."
+    ),
+    "sanity_check": (
+        "**Elite technique — Sanity Range:** Don't defend one number. Give a "
+        "confidence interval: '$500M estimate, range $300M-$700M.' This shows "
+        "you understand the sensitivity of your assumptions."
+    ),
+    "conclusion": (
+        "**Elite technique — Headline First:** Lead with the recommendation "
+        "like an executive summary. 'I recommend X because Y.' Not 'After "
+        "considering many factors, it seems like maybe we should...' "
+        "Be decisive."
+    ),
 }

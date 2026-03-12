@@ -2,9 +2,10 @@
 Core logic for running a case study session.
 
 The engine orchestrates the user through a category-specific sequence
-of reasoning stages.  Strategy cases use an 8-stage loop with
-hypothesis-driven reasoning and quantitative analysis, while
-market-sizing and quantitative cases follow tailored 6-stage flows.
+of reasoning stages.  Strategy cases use a 9-stage loop with
+framework selection, hypothesis-driven reasoning and quantitative
+analysis.  Market-sizing cases follow a 7-stage flow and
+quantitative cases a 6-stage flow.
 
 It interacts with the CLI, prompts for user input, validates
 responses, optionally invokes the AI coach, and persists the session
@@ -14,6 +15,7 @@ state after each stage.
 from __future__ import annotations
 
 import json
+import time as _time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -52,10 +54,23 @@ _restatement = StageSpec(
     ),
 )
 
+_framework = StageSpec(
+    name="framework",
+    prompt="Which framework will you use for this problem?\n> ",
+    offer_frameworks=True,
+    preamble=(
+        "Select a framework to structure your analysis.",
+        "Choose the one that best fits the problem type.",
+    ),
+)
+
 _frame = StageSpec(
     name="frame",
-    prompt="How would you structure this problem? Which framework(s) will you use?\n> ",
-    offer_frameworks=True,
+    prompt="How will you apply your chosen framework to structure this problem?\n> ",
+    preamble=(
+        "Now explain how you'll apply your framework.",
+        "Outline the key areas or buckets you'll analyze and why they matter.",
+    ),
 )
 
 _assumptions = StageSpec(
@@ -120,7 +135,6 @@ _additional_insights = StageSpec(
 _structure = StageSpec(
     name="structure",
     prompt="How will you structure this estimation? Break it into components:\n> ",
-    offer_frameworks=True,
     preamble=(
         "Before calculating, decompose the problem into logical components.",
         "Choose a top-down or bottom-up approach and outline the key segments.",
@@ -168,12 +182,12 @@ _sensitivity = StageSpec(
 # ---- Category-specific stage sequences ------------------------------------
 
 STRATEGY_STAGES: tuple[StageSpec, ...] = (
-    _restatement, _frame, _assumptions, _hypotheses,
+    _restatement, _framework, _frame, _assumptions, _hypotheses,
     _equation, _calculation, _conclusion, _additional_insights,
 )
 
 MARKET_SIZING_STAGES: tuple[StageSpec, ...] = (
-    _restatement, _structure, _assumptions,
+    _restatement, _framework, _structure, _assumptions,
     _calculation, _sanity_check, _conclusion,
 )
 
@@ -201,6 +215,63 @@ _MULTI_FIELDS = frozenset(name for name, s in _ALL_SPECS.items() if s.multi)
 def get_stages_for_category(category: str) -> tuple[StageSpec, ...]:
     """Return the stage sequence for the given case category."""
     return STAGES_BY_CATEGORY.get(category, STRATEGY_STAGES)
+
+
+# ---------------------------------------------------------------------------
+# Stage time targets (seconds) for a 25-minute case interview
+# ---------------------------------------------------------------------------
+
+STAGE_TIME_LIMITS: dict[str, dict[str, int]] = {
+    "strategy": {
+        "restatement": 120,   # 2 min
+        "framework": 120,     # 2 min
+        "frame": 180,         # 3 min
+        "assumptions": 120,   # 2 min
+        "hypotheses": 180,    # 3 min
+        "equation": 180,      # 3 min
+        "calculation": 240,   # 4 min
+        "conclusion": 240,    # 4 min
+        "additional_insights": 120,  # 2 min
+    },
+    "market-sizing": {
+        "restatement": 120,   # 2 min
+        "framework": 120,     # 2 min
+        "structure": 180,     # 3 min
+        "assumptions": 180,   # 3 min
+        "calculation": 420,   # 7 min
+        "sanity_check": 300,  # 5 min
+        "conclusion": 180,    # 3 min
+    },
+    "quantitative": {
+        "restatement": 120,   # 2 min
+        "setup": 240,         # 4 min
+        "assumptions": 180,   # 3 min
+        "calculation": 420,   # 7 min
+        "sensitivity": 300,   # 5 min
+        "conclusion": 240,    # 4 min
+    },
+}
+
+
+def get_stage_time_limit(category: str, stage_name: str) -> int:
+    """Return the target time in seconds for a stage, or 180 as default."""
+    return STAGE_TIME_LIMITS.get(category, {}).get(stage_name, 180)
+
+
+def format_time_warning(elapsed_seconds: float, target_seconds: int) -> str | None:
+    """Return a warning string if the stage took too long, else None."""
+    if elapsed_seconds <= target_seconds:
+        return None
+    e_min, e_sec = divmod(int(elapsed_seconds), 60)
+    t_min, t_sec = divmod(target_seconds, 60)
+    elapsed_str = f"{e_min}:{e_sec:02d}"
+    target_str = f"{t_min}:{t_sec:02d}"
+    ratio = elapsed_seconds / target_seconds
+    if ratio > 1.5:
+        severity = "WARNING"
+    else:
+        severity = "NOTE"
+    return f"{severity}: This stage took {elapsed_str} -- target pace is {target_str}. In a real interview, manage time carefully."
 
 
 def _is_stage_complete(value: object) -> bool:
@@ -330,6 +401,7 @@ def _run_stage(
     printed to simulate an interviewer sharing new information.
     """
     ai_gating = coach_enabled and coach.is_ai_enabled()
+    stage_start = _time.time()
 
     for line in spec.preamble:
         print(line)
@@ -360,6 +432,14 @@ def _run_stage(
             print("Revise your response and try again.\n")
         else:
             break
+
+    # Record stage timing
+    elapsed = _time.time() - stage_start
+    sess.stage_times[spec.name] = elapsed
+    target = get_stage_time_limit(sess.category, spec.name)
+    warning = format_time_warning(elapsed, target)
+    if warning:
+        print(f"\n{warning}")
 
     # Mid-case data reveal
     reveal = coach.generate_data_reveal(spec.name, value, case_context, difficulty)

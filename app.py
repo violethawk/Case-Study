@@ -6,16 +6,21 @@ reusing the existing backend modules (cases, coach, validation, session).
 """
 
 import time
+from datetime import datetime
+
 import streamlit as st
 from pathlib import Path
 
-from case_study import cases, coach, validation
-from case_study.coach import DIFFICULTY_LEVELS, STAGE_HINTS
+from case_study import cases, coach, validation, analytics
+from case_study.coach import DIFFICULTY_LEVELS, STAGE_HINTS, MBB_PRO_TIPS
 from case_study.session import Session, list_sessions
 from case_study.engine import (
     STAGES_BY_CATEGORY,
+    STAGE_TIME_LIMITS,
     StageSpec,
     get_stages_for_category,
+    get_stage_time_limit,
+    format_time_warning,
     load_frameworks,
 )
 
@@ -26,6 +31,7 @@ from case_study.engine import (
 # Display names for all stages across all categories
 STAGE_DISPLAY_NAMES: dict[str, str] = {
     "restatement": "Restatement",
+    "framework": "Framework Selection",
     "frame": "Frame",
     "assumptions": "Assumptions",
     "equation": "Equation",
@@ -43,7 +49,8 @@ STAGE_DISPLAY_NAMES: dict[str, str] = {
 
 STAGE_DESCRIPTIONS: dict[str, str] = {
     "restatement": "Restate the problem in your own words. This confirms your understanding and highlights any clarifying questions.",
-    "frame": "How would you structure this problem? Which framework(s) will you use?",
+    "framework": "Select a framework to structure your analysis. Choose the one that best fits this problem type.",
+    "frame": "How will you apply your chosen framework? Outline the key areas you'll analyze and why they matter.",
     "assumptions": "State and justify your key assumptions before proceeding. e.g., 'I assume US population of 330M'.",
     "equation": "Break the problem into a quantitative equation (e.g., Revenue = Price x Volume). Identify which variables you need to estimate.",
     "hypotheses": "Enter possible explanations or strategic paths.",
@@ -490,6 +497,19 @@ def render_session_review():
     case = st.session_state.selected_case
     stages = _get_active_stages()
 
+    # Save analytics data on completion
+    if not sess.completed_at:
+        sess.completed_at = datetime.now().astimezone().isoformat()
+        if st.session_state.get("timer_start"):
+            sess.total_time_seconds = time.time() - st.session_state.timer_start
+        sess.stage_attempts = {
+            spec.name: st.session_state.get(f"attempts_{spec.name}", 1)
+            for spec in stages
+        }
+        sess.difficulty = st.session_state.get("difficulty", "intermediate")
+        sess.coach_enabled = st.session_state.get("coach_enabled", False)
+        save_session()
+
     st.markdown(
         '<div class="main-header">'
         "<h1>Session Complete</h1>"
@@ -501,9 +521,25 @@ def render_session_review():
     # Case info
     st.markdown(f"**Case:** {_display_name(sess.case_id)}")
     _md(f"**Prompt:** {case['prompt']}")
-    if st.session_state.get("timer_start"):
+    if sess.total_time_seconds:
+        minutes = int(sess.total_time_seconds // 60)
+        seconds = int(sess.total_time_seconds % 60)
+        st.markdown(f"**Total time:** {minutes}m {seconds}s")
+    elif st.session_state.get("timer_start"):
         elapsed = _format_elapsed(st.session_state.timer_start)
         st.markdown(f"**Total time:** {elapsed}")
+
+    # Time per stage summary
+    if sess.stage_times:
+        with st.expander("Stage timing breakdown"):
+            for spec in stages:
+                elapsed = sess.stage_times.get(spec.name, 0)
+                target = get_stage_time_limit(sess.category, spec.name)
+                e_min, e_sec = divmod(int(elapsed), 60)
+                t_min, t_sec = divmod(target, 60)
+                status = "on pace" if elapsed <= target else ("over" if elapsed <= target * 1.5 else "well over")
+                label = STAGE_DISPLAY_NAMES.get(spec.name, _display_name(spec.name))
+                st.markdown(f"- **{label}:** {e_min}:{e_sec:02d} / {t_min}:{t_sec:02d} target ({status})")
     st.markdown("---")
 
     # Report: each stage
@@ -535,6 +571,49 @@ def render_session_review():
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
+
+    # Learning progression recommendation
+    all_sessions = analytics.load_completed_sessions()
+    if len(all_sessions) >= 2:
+        trends = analytics.compute_improvement_trends(all_sessions)
+        if trends["enough_data"]:
+            st.subheader("Your Learning Progress")
+            col1, col2 = st.columns(2)
+            with col1:
+                time_delta = trends["time_change_pct"]
+                time_label = "faster" if time_delta < 0 else "slower"
+                st.metric(
+                    "Avg Time (recent vs early)",
+                    f"{abs(time_delta):.0f}% {time_label}",
+                    delta=f"{-time_delta:.0f}%",
+                )
+            with col2:
+                rate_delta = trends["rate_change_pct"]
+                st.metric(
+                    "First-Attempt Rate Change",
+                    f"{rate_delta:+.0f}%",
+                    delta=f"{rate_delta:.0f}%",
+                )
+
+            # Next difficulty recommendation
+            current_diff = st.session_state.get("difficulty", "intermediate")
+            recommended = trends["recommended_next"]
+            diff_order = {"beginner": 0, "intermediate": 1, "advanced": 2}
+            if diff_order.get(recommended, 0) > diff_order.get(current_diff, 0):
+                st.success(
+                    f"Based on your progress, you're ready to move up to **{recommended}** difficulty. "
+                    "Challenge yourself with tighter coaching and less hand-holding."
+                )
+            elif recommended == current_diff:
+                st.info(
+                    f"You're performing well at **{current_diff}** level. "
+                    "Keep practicing to build consistency before moving up."
+                )
+            else:
+                st.info(
+                    f"Consider solidifying your skills at **{recommended}** level before advancing."
+                )
+            st.markdown("---")
 
     st.balloons()
 
@@ -599,6 +678,11 @@ def render_session():
     if stage_idx > 0:
         prev_stage = stages[stage_idx - 1].name
         _render_data_reveal(prev_stage)
+
+    # Start stage timer (only set once per stage)
+    start_key = f"stage_start_{stage_name}"
+    if start_key not in st.session_state:
+        st.session_state[start_key] = time.time()
 
     # Stage header with attempt badge
     attempt_count = st.session_state.get(f"attempts_{stage_name}", 1)
@@ -687,24 +771,55 @@ def _render_framework_input(stage_name: str):
 
 
 def _render_stage_hints(stage_name: str):
-    """Show hint and structure guide for beginner/intermediate difficulty."""
+    """Show hint, structure, MBB context, examples, and pro tips based on difficulty."""
     difficulty = st.session_state.get("difficulty", "intermediate")
-    if difficulty == "advanced":
-        return
     hints = STAGE_HINTS.get(stage_name)
     if not hints:
         return
+
     if difficulty == "beginner":
-        # Show both hint and structure
+        # Beginner: everything expanded for maximum learning
         with st.expander("Hint", expanded=True):
             st.info(hints["hint"])
         with st.expander("Suggested structure", expanded=True):
             st.markdown(hints["structure"])
-    else:
-        # Intermediate: collapsed hints available on demand
+        # Always show MBB context for beginners
+        if hints.get("mbb_context"):
+            with st.expander("Why this stage matters in MBB interviews", expanded=True):
+                st.markdown(f"**MBB Context:** {hints['mbb_context']}")
+        # Show worked examples for beginners
+        if hints.get("example_standard") and hints.get("example_elite"):
+            with st.expander("See examples: Standard vs Elite", expanded=True):
+                st.markdown("**Standard response** (adequate but won't stand out):")
+                st.markdown(f"> {_escape_markdown(hints['example_standard'])}")
+                st.markdown("**Elite response** (what top candidates do):")
+                st.markdown(f"> {_escape_markdown(hints['example_elite'])}")
+
+    elif difficulty == "intermediate":
+        # Intermediate: hints collapsed, MBB context on demand, examples available
         with st.expander("Need a hint?"):
             st.info(hints["hint"])
             st.markdown(hints["structure"])
+        if hints.get("mbb_context"):
+            with st.expander("Why does this matter?"):
+                st.markdown(f"**MBB Context:** {hints['mbb_context']}")
+        if hints.get("example_standard") and hints.get("example_elite"):
+            with st.expander("Compare: Standard vs Elite response"):
+                st.markdown("**Standard:**")
+                st.markdown(f"> {_escape_markdown(hints['example_standard'])}")
+                st.markdown("**Elite:**")
+                st.markdown(f"> {_escape_markdown(hints['example_elite'])}")
+        # Show MBB Pro Tips at intermediate level
+        pro_tip = MBB_PRO_TIPS.get(stage_name)
+        if pro_tip:
+            st.info(pro_tip)
+
+    else:
+        # Advanced: no hints, but show pro tips as a brief nudge
+        pro_tip = MBB_PRO_TIPS.get(stage_name)
+        if pro_tip:
+            with st.expander("Pro tip"):
+                st.markdown(pro_tip)
 
 
 def _render_single_input(stage_name: str, stage_idx: int):
@@ -796,9 +911,14 @@ def _render_multi_input(stage_name: str, item_name: str, stage_idx: int):
 
 
 def _after_stage_submit(stage_name: str, content):
-    """Handle post-submission: show success and offer coach feedback."""
+    """Handle post-submission: record timing, show success and offer coach feedback."""
     st.session_state[f"submitted_{stage_name}"] = True
     st.session_state[f"content_{stage_name}"] = content
+    # Record stage timing
+    start_key = f"stage_start_{stage_name}"
+    if start_key in st.session_state:
+        elapsed = time.time() - st.session_state[start_key]
+        st.session_state.session.stage_times[stage_name] = elapsed
     st.rerun()
 
 
@@ -808,7 +928,7 @@ def _clear_stage_input_keys():
         k
         for k in st.session_state
         if k.startswith(
-            ("input_", "items_", "new_item_", "submitted_", "content_", "feedback_", "add_counter_", "previous_response_", "data_reveal_")
+            ("input_", "items_", "new_item_", "submitted_", "content_", "feedback_", "add_counter_", "previous_response_", "data_reveal_", "stage_start_")
         )
     ]
     for k in keys_to_remove:
@@ -819,7 +939,7 @@ def _full_reset():
     """Clear all session-related keys for a fresh start."""
     for key in ["session", "selected_case", "active_stage", "page", "timer_start"]:
         st.session_state.pop(key, None)
-    # Clear attempt counters and feedback for ALL possible stages
+    # Clear attempt counters, feedback, and stage timers for ALL possible stages
     for stage_name in STAGE_DISPLAY_NAMES:
         st.session_state.pop(f"attempts_{stage_name}", None)
         st.session_state.pop(f"feedback_history_{stage_name}", None)
@@ -890,6 +1010,8 @@ def render_coach_feedback():
                     '<div class="feedback-pass">You passed this stage!</div>',
                     unsafe_allow_html=True,
                 )
+                # Show time warning if applicable
+                _render_time_warning(spec.name)
                 # Save feedback for report
                 st.session_state[f"feedback_history_{spec.name}"] = fb
                 # Generate data reveal if applicable
@@ -933,21 +1055,42 @@ def render_coach_feedback():
         # --- Optional coach mode (heuristic or no API key) ---
         display = STAGE_DISPLAY_NAMES.get(spec.name, _display_name(spec.name))
         st.success(f"Stage '{display}' saved.")
+        _render_time_warning(spec.name)
         if coach_enabled:
             if feedback_key not in st.session_state:
-                if st.button("Get Coach Feedback", key=f"coach_btn_{spec.name}"):
-                    content = st.session_state[f"content_{spec.name}"]
-                    fb = coach.provide_feedback(spec.name, content, case_context, difficulty)
-                    st.session_state[feedback_key] = fb
+                content = st.session_state[f"content_{spec.name}"]
+                fb = coach.provide_feedback(spec.name, content, case_context, difficulty)
+                st.session_state[feedback_key] = fb
 
             if feedback_key in st.session_state:
                 fb = st.session_state[feedback_key]
                 _render_feedback_display(fb)
-                # Save feedback for report
                 st.session_state[f"feedback_history_{spec.name}"] = fb
 
+                if not fb.passed:
+                    st.markdown(
+                        '<div class="feedback-fail">Not yet -- revise your response and resubmit.</div>',
+                        unsafe_allow_html=True,
+                    )
+                    if st.button("Revise this stage", key=f"revise_{spec.name}"):
+                        attempts_key = f"attempts_{spec.name}"
+                        st.session_state[attempts_key] = st.session_state.get(attempts_key, 1) + 1
+                        prev_key = f"previous_response_{spec.name}"
+                        content = st.session_state.get(f"content_{spec.name}")
+                        if content:
+                            st.session_state[prev_key] = content
+                        sess = st.session_state.session
+                        if spec.multi:
+                            setattr(sess, spec.name, [])
+                        else:
+                            setattr(sess, spec.name, None)
+                        sess.save()
+                        _clear_submitted(spec.name)
+                        st.rerun()
+                    return True
+
         if st.button("Continue to next stage", key=f"continue_{spec.name}"):
-            _clear_submitted(spec.name)
+            _clear_submitted(spec.name, clear_previous=True)
             st.rerun()
         return True
 
@@ -978,12 +1121,151 @@ def _render_feedback_display(fb: coach.CoachFeedback):
     )
 
 
+def _render_time_warning(stage_name: str):
+    """Show a time warning if the stage took longer than target."""
+    sess = st.session_state.session
+    elapsed = sess.stage_times.get(stage_name)
+    if elapsed is None:
+        return
+    target = get_stage_time_limit(sess.category, stage_name)
+    warning = format_time_warning(elapsed, target)
+    if warning:
+        if "WARNING" in warning:
+            st.warning(warning)
+        else:
+            st.info(warning)
+
+
 def _clear_submitted(stage_name: str, clear_previous: bool = False):
     """Remove submission-related keys for a stage."""
     for prefix in ("submitted_", "content_", "feedback_", "items_", "add_counter_"):
         st.session_state.pop(f"{prefix}{stage_name}", None)
     if clear_previous:
         st.session_state.pop(f"previous_response_{stage_name}", None)
+
+
+# ---------------------------------------------------------------------------
+# Page: Portfolio Analytics
+# ---------------------------------------------------------------------------
+
+
+def render_portfolio():
+    """Show portfolio analytics across completed sessions."""
+    st.markdown(
+        '<div class="main-header">'
+        "<h1>Portfolio Analytics</h1>"
+        "<p>Track your progress across case study sessions</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    sessions = analytics.load_completed_sessions()
+    if not sessions:
+        st.info("No completed sessions yet. Finish a case to see your analytics here.")
+        if st.button("Back to cases"):
+            st.session_state.page = "selection"
+            st.rerun()
+        return
+
+    stats = analytics.compute_portfolio_stats(sessions)
+
+    # Summary cards
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Sessions Completed", stats["total_sessions"])
+    with col2:
+        avg_min = stats["avg_time_seconds"] / 60 if stats["avg_time_seconds"] else 0
+        st.metric("Avg Time", f"{avg_min:.1f} min")
+    with col3:
+        rate = stats["avg_first_attempt_rate"] * 100
+        st.metric("First-Attempt Pass Rate", f"{rate:.0f}%")
+    with col4:
+        most_cat = max(stats["by_category"], key=lambda c: stats["by_category"][c]["count"]) if stats["by_category"] else "N/A"
+        st.metric("Most Practiced", _display_name(most_cat))
+
+    st.markdown("---")
+
+    # Category breakdown
+    if stats["by_category"]:
+        st.subheader("By Category")
+        for cat, data in stats["by_category"].items():
+            avg_cat_min = data["avg_time"] / 60 if data["avg_time"] else 0
+            st.markdown(f"- **{_display_name(cat)}:** {data['count']} sessions, avg {avg_cat_min:.1f} min")
+
+    # Difficulty breakdown
+    if stats["by_difficulty"]:
+        st.subheader("By Difficulty")
+        for diff, count in sorted(stats["by_difficulty"].items()):
+            st.markdown(f"- **{diff.capitalize()}:** {count} sessions")
+
+    st.markdown("---")
+
+    # Stage performance
+    stage_perf = analytics.compute_stage_performance(sessions)
+    if stage_perf:
+        st.subheader("Stage Performance")
+        for sp in stage_perf:
+            avg_min = sp["avg_time_seconds"] / 60
+            rate = sp["first_attempt_rate"] * 100
+            label = STAGE_DISPLAY_NAMES.get(sp["stage"], _display_name(sp["stage"]))
+            st.markdown(f"- **{label}:** avg {avg_min:.1f} min, {rate:.0f}% first-attempt pass ({sp['sample_size']} samples)")
+
+    st.markdown("---")
+
+    # Improvement trends
+    trends = analytics.compute_improvement_trends(sessions)
+    if trends.get("enough_data"):
+        st.subheader("Improvement Trends")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            time_delta = trends["time_change_pct"]
+            time_label = "faster" if time_delta < 0 else "slower"
+            st.metric(
+                "Time Trend",
+                f"{abs(time_delta):.0f}% {time_label}",
+                delta=f"{-time_delta:.0f}%",
+            )
+        with col2:
+            rate_delta = trends["rate_change_pct"]
+            st.metric(
+                "First-Attempt Trend",
+                f"{rate_delta:+.0f}%",
+                delta=f"{rate_delta:.0f}%",
+            )
+        with col3:
+            rec = trends["recommended_next"]
+            st.metric("Recommended Level", rec.capitalize())
+
+        # Per-stage improvement details
+        stage_imps = trends.get("stage_improvements", [])
+        if stage_imps:
+            with st.expander("Stage-by-stage trends"):
+                for si in stage_imps:
+                    label = STAGE_DISPLAY_NAMES.get(si["stage"], _display_name(si["stage"]))
+                    early_min = si["early_avg"] / 60
+                    recent_min = si["recent_avg"] / 60
+                    arrow = "faster" if si["change_pct"] < 0 else "slower"
+                    st.markdown(
+                        f"- **{label}:** {early_min:.1f} min → {recent_min:.1f} min "
+                        f"({abs(si['change_pct']):.0f}% {arrow})"
+                    )
+
+        st.markdown("---")
+
+    # Recent sessions
+    recent = analytics.compute_recent_sessions(sessions)
+    if recent:
+        st.subheader("Recent Sessions")
+        for r in recent:
+            rate = r["first_attempt_rate"] * 100
+            st.markdown(
+                f"- **{_display_name(r['case_id'])}** ({_display_name(r['category'])}, {r['difficulty']}) "
+                f"-- {r['total_minutes']} min, {rate:.0f}% first-attempt"
+            )
+
+    if st.button("Back to cases", type="primary"):
+        st.session_state.page = "selection"
+        st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -1007,6 +1289,10 @@ def render_sidebar():
             if st.button("Back to case selection"):
                 _full_reset()
                 st.rerun()
+
+        if st.button("Portfolio Analytics", use_container_width=True):
+            st.session_state.page = "portfolio"
+            st.rerun()
 
         st.divider()
         st.subheader("Previous Sessions")
@@ -1078,7 +1364,9 @@ def main():
 
     render_sidebar()
 
-    if st.session_state.page == "session" and "session" in st.session_state:
+    if st.session_state.page == "portfolio":
+        render_portfolio()
+    elif st.session_state.page == "session" and "session" in st.session_state:
         # Check if we need to show post-submission feedback before rendering the next stage
         if not render_coach_feedback():
             render_session()

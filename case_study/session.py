@@ -28,6 +28,7 @@ class Session:
     timestamp: str
     category: str = "strategy"
     restatement: str | None = None
+    framework: str | None = None
     frame: str | None = None
     assumptions: list[str] = field(default_factory=list)
     equation: str | None = None
@@ -41,6 +42,13 @@ class Session:
     calculation: list[str] = field(default_factory=list)
     sanity_check: str | None = None
     sensitivity: str | None = None
+    # Analytics fields
+    stage_times: dict[str, float] = field(default_factory=dict)
+    total_time_seconds: float = 0.0
+    completed_at: str | None = None
+    stage_attempts: dict[str, int] = field(default_factory=dict)
+    difficulty: str | None = None
+    coach_enabled: bool = False
 
     @classmethod
     def new(cls, case_id: str, category: str = "strategy") -> "Session":
@@ -74,6 +82,7 @@ class Session:
             timestamp=data.get("timestamp"),
             category=data.get("category", "strategy"),
             restatement=data.get("restatement"),
+            framework=data.get("framework"),
             frame=data.get("frame"),
             assumptions=data.get("assumptions", []),
             equation=data.get("equation"),
@@ -87,6 +96,12 @@ class Session:
             calculation=data.get("calculation", []),
             sanity_check=data.get("sanity_check"),
             sensitivity=data.get("sensitivity"),
+            stage_times=data.get("stage_times", {}),
+            total_time_seconds=data.get("total_time_seconds", 0.0),
+            completed_at=data.get("completed_at"),
+            stage_attempts=data.get("stage_attempts", {}),
+            difficulty=data.get("difficulty"),
+            coach_enabled=data.get("coach_enabled", False),
         )
 
 
