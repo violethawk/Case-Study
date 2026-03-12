@@ -1,7 +1,7 @@
 """
 Case loading utilities.
 
-Cases are stored in JSON files under the ``cases/`` directory.  Each
+Cases are stored in JSON files under the ``data/`` directory.  Each
 case contains an identifier, a prompt, optional context and a
 difficulty rating.  This module exposes functions to load all cases
 and to select specific cases by identifier.
@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 
-CASES_FILE = Path(__file__).resolve().parent.parent / "cases" / "sample_cases.json"
+CASES_FILE = Path(__file__).resolve().parent.parent / "data" / "sample_cases.json"
 
 
 def load_cases(path: Path = CASES_FILE) -> List[Dict[str, Any]]:

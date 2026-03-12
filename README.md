@@ -66,7 +66,7 @@ python -m case_study list                            # list saved sessions
 ### Starting a Session
 
 When you start a new session you will be shown the available cases
-from `cases/sample_cases.json` and prompted to pick one by number or
+from `data/sample_cases.json` and prompted to pick one by number or
 identifier.  The program displays the case prompt and context and then
 walks you through each reasoning stage.  Your responses must contain
 at least ten characters; the tool will ask you to expand very short
@@ -123,9 +123,12 @@ Case-Study/
 │   ├── engine.py        # reasoning‑loop orchestration
 │   ├── session.py       # session persistence
 │   └── validation.py    # input validation helpers
-├── cases/
+├── data/
 │   └── sample_cases.json
 ├── sessions/            # saved session files (gitignored)
+├── tests/               # test suite
+├── .gitignore
+├── pyproject.toml
 ├── LICENSE
 └── README.md
 ```
@@ -133,7 +136,7 @@ Case-Study/
 ## Sample Cases
 
 The repository includes a small set of sample cases in
-`cases/sample_cases.json`.  Each case entry contains an ID, a prompt,
+`data/sample_cases.json`.  Each case entry contains an ID, a prompt,
 optional context and a difficulty rating.  You can add your own cases
 by editing this file or pointing the loader at a different JSON file.
 
