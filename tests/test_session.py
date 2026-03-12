@@ -55,6 +55,7 @@ def test_new_session_defaults_are_empty():
     assert session.restatement is None
     assert session.frame is None
     assert session.assumptions == []
+    assert session.equation is None
     assert session.hypotheses == []
     assert session.analyses == []
     assert session.updates == []

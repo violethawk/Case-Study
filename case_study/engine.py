@@ -2,8 +2,9 @@
 Core logic for running a case study session.
 
 The engine orchestrates the user through a category-specific sequence
-of reasoning stages.  Strategy cases use the full 8-stage loop, while
-market-sizing and quantitative cases follow tailored shorter flows.
+of reasoning stages.  Strategy cases use a 7-stage loop with
+quantitative analysis, while market-sizing and quantitative cases
+follow tailored 6-stage flows.
 
 It interacts with the CLI, prompts for user input, validates
 responses, optionally invokes the AI coach, and persists the session
@@ -65,6 +66,16 @@ _assumptions = StageSpec(
     preamble=(
         "State and justify your key assumptions before proceeding.",
         "e.g., 'I assume US population of 330M' or 'I assume no competitor response in year 1.'",
+    ),
+)
+
+_equation = StageSpec(
+    name="equation",
+    prompt="Break the problem into a quantitative equation:\n> ",
+    preamble=(
+        "Express the key relationship as an equation.",
+        "e.g., Revenue = Price x Volume, or Profit = Revenue - Costs.",
+        "Identify which variables you need to estimate or calculate.",
     ),
 )
 
@@ -157,8 +168,8 @@ _sensitivity = StageSpec(
 # ---- Category-specific stage sequences ------------------------------------
 
 STRATEGY_STAGES: tuple[StageSpec, ...] = (
-    _restatement, _frame, _assumptions, _hypotheses,
-    _analyses, _updates, _conclusion, _additional_insights,
+    _restatement, _frame, _assumptions, _equation,
+    _calculation, _conclusion, _additional_insights,
 )
 
 MARKET_SIZING_STAGES: tuple[StageSpec, ...] = (

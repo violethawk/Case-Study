@@ -27,6 +27,7 @@ STAGE_DISPLAY_NAMES: dict[str, str] = {
     "restatement": "Restatement",
     "frame": "Frame",
     "assumptions": "Assumptions",
+    "equation": "Equation",
     "hypotheses": "Hypotheses",
     "analyses": "Analyses",
     "updates": "Updates",
@@ -43,6 +44,7 @@ STAGE_DESCRIPTIONS: dict[str, str] = {
     "restatement": "Restate the problem in your own words. This confirms your understanding and highlights any clarifying questions.",
     "frame": "How would you structure this problem? Which framework(s) will you use?",
     "assumptions": "State and justify your key assumptions before proceeding. e.g., 'I assume US population of 330M'.",
+    "equation": "Break the problem into a quantitative equation (e.g., Revenue = Price x Volume). Identify which variables you need to estimate.",
     "hypotheses": "Enter possible explanations or strategic paths.",
     "analyses": "What analyses would you perform to test your hypotheses?",
     "updates": "How do your hypotheses change based on your analysis?",
@@ -599,27 +601,25 @@ def _render_framework_input(stage_name: str):
     _render_previous_response(stage_name)
     frameworks = load_frameworks()
 
+    selected = None
     if frameworks:
         fw_options = [f"{fw['name']} — {fw['full_name']}" for fw in frameworks]
-        selected = st.multiselect(
-            "Select framework(s):",
-            options=fw_options,
+        selected = st.selectbox(
+            "Select a framework:",
+            options=[None] + fw_options,
             key=f"fw_select_{stage_name}",
-            placeholder="Choose one or more frameworks...",
+            format_func=lambda x: "Choose a framework..." if x is None else x,
         )
 
-        # Show descriptions for selected frameworks
+        # Show description for selected framework
         if selected:
-            for choice in selected:
-                fw_name = choice.split(" — ")[0]
-                fw = next((f for f in frameworks if f["name"] == fw_name), None)
-                if fw:
-                    st.caption(f"**{fw['name']}:** {_escape_markdown(fw['description'])}")
-    else:
-        selected = []
+            fw_name = selected.split(" — ")[0]
+            fw = next((f for f in frameworks if f["name"] == fw_name), None)
+            if fw:
+                st.caption(f"**{fw['name']}:** {_escape_markdown(fw['description'])}")
 
     explanation = st.text_area(
-        "Explain how you'll apply the selected framework(s) to this problem:",
+        "Explain how you'll apply this framework to the problem:",
         key=f"fw_explain_{stage_name}",
         height=150,
         placeholder="Why did you choose this framework? What are the key areas you'll analyze?",
@@ -627,15 +627,15 @@ def _render_framework_input(stage_name: str):
 
     if st.button("Submit", key=f"submit_{stage_name}"):
         if not selected:
-            st.error("Please select at least one framework.")
+            st.error("Please select a framework.")
             return
         if not explanation or len(explanation.strip()) < 10:
-            st.error("Please explain how you'll apply the framework(s).")
+            st.error("Please explain how you'll apply the framework.")
             return
 
         # Build the combined response
-        fw_names = [s.split(" — ")[0] for s in selected]
-        response = f"Frameworks: {', '.join(fw_names)}\n\n{explanation.strip()}"
+        fw_name = selected.split(" — ")[0]
+        response = f"Framework: {fw_name}\n\n{explanation.strip()}"
 
         setattr(st.session_state.session, stage_name, response)
         save_session()

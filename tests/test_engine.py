@@ -50,7 +50,7 @@ def test_multi_stages_have_item_name():
 
 
 def test_strategy_stages_count():
-    assert len(STRATEGY_STAGES) == 8
+    assert len(STRATEGY_STAGES) == 7
 
 
 def test_market_sizing_stages_count():
@@ -64,8 +64,8 @@ def test_quantitative_stages_count():
 def test_strategy_stage_names():
     names = tuple(s.name for s in STRATEGY_STAGES)
     assert names == (
-        "restatement", "frame", "assumptions", "hypotheses",
-        "analyses", "updates", "conclusion", "additional_insights",
+        "restatement", "frame", "assumptions", "equation",
+        "calculation", "conclusion", "additional_insights",
     )
 
 
@@ -140,9 +140,9 @@ def test_clear_single_field():
 
 
 def test_clear_multi_field():
-    sess = Session(case_id="x", timestamp="t", hypotheses=["h1", "h2"])
-    _clear_stage(sess, "hypotheses")
-    assert sess.hypotheses == []
+    sess = Session(case_id="x", timestamp="t", assumptions=["a1", "a2"])
+    _clear_stage(sess, "assumptions")
+    assert sess.assumptions == []
 
 
 def test_clear_new_single_field():
@@ -178,9 +178,8 @@ def test_print_session_populated(capsys):
         restatement="My restatement",
         frame="My frame",
         assumptions=["a1", "a2"],
-        hypotheses=["h1"],
-        analyses=["an1"],
-        updates=["u1"],
+        equation="Revenue = P * Q",
+        calculation=["step1", "step2"],
         conclusion="My conclusion",
         additional_insights="Extra thoughts",
     )
@@ -192,6 +191,8 @@ def test_print_session_populated(capsys):
     assert "ASSUMPTIONS:" in out
     assert "1. a1" in out
     assert "2. a2" in out
+    assert "EQUATION:" in out
+    assert "CALCULATION:" in out
     assert "CONCLUSION:" in out
     assert "ADDITIONAL INSIGHTS:" in out
     assert "Extra thoughts" in out
@@ -227,7 +228,7 @@ def test_run_session_already_complete(capsys):
     sess = Session(
         case_id="x", timestamp="t",
         restatement="r", frame="f", assumptions=["a"],
-        hypotheses=["h"], analyses=["an"], updates=["u"],
+        equation="Revenue = P * Q", calculation=["step1"],
         conclusion="c", additional_insights="ai",
     )
     run_session(sess, coach_enabled=False)
@@ -239,7 +240,7 @@ def test_run_session_single_stage(monkeypatch, tmp_path, capsys):
     sess = Session(
         case_id="x", timestamp="t",
         restatement="r", frame="f", assumptions=["a"],
-        hypotheses=["h"], analyses=["an"], updates=["u"],
+        equation="Revenue = P * Q", calculation=["step1"],
         conclusion="c",
     )
     # Mock save to use tmp_path and mock input for additional_insights
@@ -254,32 +255,26 @@ def test_run_session_single_stage(monkeypatch, tmp_path, capsys):
 
 
 def test_run_session_multi_stage(monkeypatch, tmp_path, capsys):
-    """Run a session that needs hypotheses (multi) stage onward."""
+    """Run a session that needs equation stage onward."""
     sess = Session(
         case_id="x", timestamp="t",
         restatement="r", frame="f", assumptions=["a"],
     )
     monkeypatch.setattr(sess, "save", lambda directory=tmp_path: None)
 
-    # Inputs: hypothesis text, "n" (no more), analysis text, "n", update text, "n",
-    # conclusion text, additional_insights text
     inputs = iter([
-        "Market demand is growing",    # hypothesis 1
-        "n",                            # no more hypotheses
-        "Revenue analysis needed",      # analysis 1
-        "n",                            # no more analyses
-        "Hypothesis confirmed",         # update 1
-        "n",                            # no more updates
-        "Recommend expansion",          # conclusion
-        "Watch for regulatory changes", # additional insights
+        "Revenue = Price * Volume",                    # equation
+        "Price = $50, Volume = 10K, Revenue = $500K",  # calculation step 1
+        "n",                                            # no more calc steps
+        "Recommend expansion",                          # conclusion
+        "Watch for regulatory changes",                 # additional insights
     ])
     monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
 
     run_session(sess, coach_enabled=False)
 
-    assert sess.hypotheses == ["Market demand is growing"]
-    assert sess.analyses == ["Revenue analysis needed"]
-    assert sess.updates == ["Hypothesis confirmed"]
+    assert sess.equation == "Revenue = Price * Volume"
+    assert sess.calculation == ["Price = $50, Volume = 10K, Revenue = $500K"]
     assert sess.conclusion == "Recommend expansion"
     assert sess.additional_insights == "Watch for regulatory changes"
 
@@ -341,7 +336,7 @@ def test_run_session_with_coach(monkeypatch, tmp_path, capsys):
     sess = Session(
         case_id="x", timestamp="t",
         restatement="r", frame="f", assumptions=["a"],
-        hypotheses=["h"], analyses=["an"], updates=["u"],
+        equation="Revenue = P * Q", calculation=["step1"],
         conclusion="c",
     )
     monkeypatch.setattr(sess, "save", lambda directory=tmp_path: None)

@@ -30,6 +30,7 @@ class Session:
     restatement: str | None = None
     frame: str | None = None
     assumptions: list[str] = field(default_factory=list)
+    equation: str | None = None
     hypotheses: list[str] = field(default_factory=list)
     analyses: list[str] = field(default_factory=list)
     updates: list[str] = field(default_factory=list)
@@ -75,6 +76,7 @@ class Session:
             restatement=data.get("restatement"),
             frame=data.get("frame"),
             assumptions=data.get("assumptions", []),
+            equation=data.get("equation"),
             hypotheses=data.get("hypotheses", []),
             analyses=data.get("analyses", []),
             updates=data.get("updates", []),

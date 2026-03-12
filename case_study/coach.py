@@ -38,6 +38,12 @@ STAGE_CRITERIA: dict[str, str] = {
         "(2) each assumption should be justified (why they believe it), "
         "(3) flag which assumptions are most critical. Unjustified or missing assumptions = not passed."
     ),
+    "equation": (
+        "The user must: (1) express the problem as a clear quantitative equation "
+        "or formula (e.g., Revenue = Price x Volume), (2) identify which variables "
+        "are known vs. need estimation, (3) explain why this decomposition captures "
+        "the key drivers. A vague or non-quantitative breakdown = not passed."
+    ),
     "hypotheses": (
         "The user must: (1) propose at least 2 distinct hypotheses, "
         "(2) hypotheses should span different categories (e.g. demand-side vs supply-side, "
@@ -276,6 +282,12 @@ def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
             "Distinguish between assumptions you've made (because data is unavailable) and facts given in the case. "
             "Flag any assumptions that, if wrong, would significantly change your analysis."
         ),
+        "equation": (
+            "Check that your equation captures the key drivers of the problem. "
+            "Have you identified all the variables? Is the decomposition MECE "
+            "(mutually exclusive, collectively exhaustive)? Consider whether a "
+            "different equation structure might better capture the dynamics."
+        ),
         "hypotheses": (
             "Check that your hypotheses cover different categories (e.g., customer, product, market, operations) "
             "and that they are mutually exclusive and collectively exhaustive where possible."
@@ -345,6 +357,11 @@ def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
             "Which of your assumptions are most critical to the outcome? "
             "What would change if your key assumptions were off by 50%? "
             "Are there assumptions you can verify with data from the case?"
+        ),
+        "equation": (
+            "Does your equation capture all the important levers? "
+            "Could you decompose any of the variables further (e.g., Volume = Market Size x Market Share)? "
+            "Which variable has the most uncertainty?"
         ),
         "hypotheses": (
             "Have you considered drivers from customer behaviour, market trends, internal capabilities and external factors?"
