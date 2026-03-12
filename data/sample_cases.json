@@ -68,5 +68,54 @@
     "category": "strategy",
     "context": "Conservation Forever (CF) was formed in 2011 and aims to permanently conserve large areas of land and ocean over the next decade. Biodiversity is in severe decline, putting ecosystem services (clean air, food security, fresh water) at risk for indigenous peoples, local communities, and economies worldwide.\n\nLarge conservation projects require significant upfront financing, complex legal frameworks, and extensive coordination between civil society, government, NGOs, and donors. CF has shortlisted three candidate geographies: the coastal areas of Peru, the steppe grasslands of Ukraine, and the mountain forests of Uganda.\n\nThe team decided to focus on Peru's coastal areas, where coastal vegetation provides critical habitats, protects shorelines, and sequesters carbon. The coastline is beautiful and relatively unspoiled, making ecotourism an opportunity.\n\nEcotourism projections for Peru:\n  Current communities with tourism infrastructure: 5\n  Current annual visitors per community: 100,000\n  Projected visitor increase over next 5 years: 20%\n  Average length of stay will double: 2 days -> 4 days\n  Average visitor spending: $100 per person per day (stable)\n\nCommunity pilot prioritization data (bubble chart — size = # of residents):\n  Community | Return on Investment | Investment Needs | Size\n            | (income/investment)  | (new/current     |\n            |                      |  visitor ratio)  |\n  A         |         9            |     ~1.2         | Medium\n  B         |        13            |     ~1.2         | Medium\n  C         |        11            |     ~1.2         | Medium\n  D         |         8            |     ~3.3         | Small (emergent signs of over-visitation)\n  E         |         7            |     ~1.8         | Medium-large\n  F         |         6            |     ~1.2         | Large\n  G         |        27            |     ~1.5         | Medium\n  H         |         1            |     ~0.3         | Large\n  I         |         0            |     ~0.3         | Small\n  J         |         7            |     ~1.5         | Medium\n\nKey considerations: geography selection criteria (biodiversity impact, feasibility, funding, political stability), ecotourism revenue levers (visitors, length of stay, spending), community pilot prioritization (ROI vs. investment needs vs. community size), and sustainability risks (over-visitation).",
     "difficulty": "hard"
+  },
+  {
+    "id": "ev_charging_sizing_001",
+    "prompt": "A private equity firm is evaluating an investment in electric vehicle charging infrastructure. Estimate the total market size for public EV charging in the United States.",
+    "category": "market-sizing",
+    "context": "The firm wants a bottom-up estimate of annual revenue from public EV charging stations in the US.\n\nUseful assumptions to consider:\n  US population: ~330 million\n  Average household size: ~2.5 people (approx. 130 million households)\n  Vehicles per household: ~2 (approx. 260 million registered vehicles)\n  Current EV penetration: ~5% of vehicles on the road\n  Percentage of EV owners who rely on public charging (vs. home charging): ~30%\n  Average public charging sessions per week for those who use public charging: ~2\n  Average kWh per charging session: ~30 kWh\n  Average price per kWh at public chargers: ~$0.40\n\nYour goal is to structure the estimation, state your assumptions clearly, and arrive at a reasonable annual market size figure. There is no single correct answer — the interviewer is evaluating your approach and reasoning.",
+    "difficulty": "easy"
+  },
+  {
+    "id": "coffee_shops_sizing_001",
+    "prompt": "A national coffee chain is planning its expansion strategy. Estimate how many coffee shops exist in the United States today.",
+    "category": "market-sizing",
+    "context": "A large coffee chain wants to understand market saturation before committing to aggressive expansion. They need an estimate of the total number of coffee shops currently operating in the US.\n\nUseful assumptions to consider:\n  US population: ~330 million\n  Percentage of adults (18+): ~78% (~257 million adults)\n  Percentage of adults who drink coffee: ~65%\n  Average coffee drinker visits a coffee shop: ~2 times per week\n  Average coffee shop serves: ~300 customers per day\n  Coffee shops operate: ~365 days per year\n\nConsider approaching this from multiple angles (demand-side and supply-side) and cross-checking your estimates. Think about different types of coffee shops: large chains, independent shops, and coffee counters in other businesses.",
+    "difficulty": "easy"
+  },
+  {
+    "id": "protein_powder_sizing_001",
+    "prompt": "What is the market size of protein powder in the United States?",
+    "category": "market-sizing",
+    "context": "A consumer goods company is considering entering the protein supplement market and needs to understand the total addressable market.\n\nUseful assumptions to consider:\n  US population: ~330 million\n  Adults (18+): ~257 million\n  Consider segmenting consumers by usage intensity:\n    - Serious fitness enthusiasts/bodybuilders: ~5% of adults\n    - Regular gym-goers/health-conscious: ~15% of adults\n    - Occasional/casual users: ~10% of adults\n  Average consumption patterns vary by segment (daily vs. a few times per week vs. occasionally)\n  Average serving size: ~30 grams of powder\n  Average retail price: ~$1.00-$1.50 per serving\n\nStructure your estimation by segmenting the market, estimating consumption frequency and volume per segment, then converting to dollar terms. Consider both volume (tons) and revenue ($) market size.",
+    "difficulty": "medium"
+  },
+  {
+    "id": "school_buses_sizing_001",
+    "prompt": "How many yellow school buses are currently in operation in the United States?",
+    "category": "market-sizing",
+    "context": "A fleet management software company wants to estimate the size of its addressable market in the US school bus sector.\n\nUseful assumptions to consider:\n  US population: ~330 million\n  Average lifespan: ~80 years (roughly 4 million people per age year)\n  School-age children (5-18): ~13 age years\n  Not all children ride the bus — consider private schools, walkers, parent drop-offs, and urban transit\n  Average school bus capacity: ~48-72 students\n  Many buses run multiple routes per morning/afternoon\n\nYou might approach this from the demand side (how many students need transport?) or the supply side (how many schools, and how many buses per school?). Consider urban vs. suburban vs. rural differences.",
+    "difficulty": "easy"
+  },
+  {
+    "id": "airline_revenue_quant_001",
+    "prompt": "An airline operates a fleet of 200 aircraft, each completing an average of 4 flights per day. With an average of 180 seats per plane and an 82% load factor, the average ticket price is $250. The airline's operating margin is 12%. If fuel costs (which represent 35% of total operating costs) increase by 20%, what is the impact on the airline's annual operating profit, assuming no other changes?",
+    "category": "quantitative",
+    "context": "This is a quantitative analysis problem. Work through the calculations step by step.\n\nGiven data:\n  Fleet size: 200 aircraft\n  Flights per aircraft per day: 4\n  Seats per aircraft: 180\n  Load factor: 82%\n  Average ticket price: $250\n  Operating margin: 12%\n  Fuel as % of total operating costs: 35%\n  Fuel cost increase: 20%\n  Operating days per year: 365\n\nStructure your approach before calculating. Consider: What is annual revenue? What are total operating costs? What is current operating profit? How much do fuel costs increase? What is the new operating profit and new margin?",
+    "difficulty": "medium"
+  },
+  {
+    "id": "breakeven_pricing_quant_001",
+    "prompt": "A SaaS company is launching a new product tier. Development costs were $5 million. Monthly fixed costs for hosting and support are $200,000. The variable cost per customer per month is $15. If the product is priced at $65 per customer per month, how many customers does the company need and how long will it take to recoup the initial development investment, assuming it adds 500 new customers per month starting from launch?",
+    "category": "quantitative",
+    "context": "This is a multi-step breakeven and payback period problem.\n\nGiven data:\n  Development cost (sunk/upfront): $5,000,000\n  Monthly fixed costs (hosting + support): $200,000\n  Variable cost per customer per month: $15\n  Price per customer per month: $65\n  Customer acquisition rate: 500 new customers per month (cumulative, no churn)\n\nConsider structuring your approach around:\n  1. Contribution margin per customer per month\n  2. Monthly breakeven number of customers (to cover fixed costs)\n  3. Cumulative profit over time to recoup the $5M development cost\n  4. Account for the fact that the customer base grows each month\n\nRemember to talk through your approach before diving into calculations.",
+    "difficulty": "medium"
+  },
+  {
+    "id": "warehouse_optimization_quant_001",
+    "prompt": "A logistics company operates 12 warehouses across the country. Each warehouse processes an average of 5,000 packages per day at a cost of $3.50 per package. A new automated sorting system would reduce per-package costs by 30% but requires a $2 million investment per warehouse and takes each warehouse offline for 2 weeks during installation. The company processes packages 365 days a year. If the company can only upgrade 3 warehouses at a time, what is the total investment, what are the annual savings once all warehouses are upgraded, and what is the payback period?",
+    "category": "quantitative",
+    "context": "This is an operations and investment analysis problem requiring structured calculation.\n\nGiven data:\n  Number of warehouses: 12\n  Packages per warehouse per day: 5,000\n  Current cost per package: $3.50\n  Cost reduction from automation: 30%\n  Investment per warehouse: $2,000,000\n  Downtime per warehouse during installation: 2 weeks (14 days)\n  Operating days per year: 365\n  Upgrade capacity: 3 warehouses at a time\n\nConsider:\n  1. Total investment cost across all warehouses\n  2. Revenue/throughput lost during downtime\n  3. Annual savings once fully operational\n  4. Payback period accounting for the phased rollout\n  5. Whether the company should prioritize certain warehouses",
+    "difficulty": "hard"
   }
 ]
