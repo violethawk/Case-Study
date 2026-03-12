@@ -30,18 +30,25 @@ cd Case-Study
 python -m case_study start
 ```
 
+Use `--coach` to enable AI feedback, or omit to be prompted interactively:
+
+```sh
+python -m case_study start --coach
+```
+
 Example session flow:
 
 ```text
 $ python -m case_study start
 Available cases:
-  1. bank_growth_001 – Regional Bank Growth Strategy (medium)
+  1. bank_growth_001 – A regional bank is considering ...
   ...
-Select a case [1]: 1
-Enable AI coach? [y/N]: y
+Select a case by number or ID (or 'q' to cancel): 1
+Would you like to enable coach mode for this session? (y/n) y
 
-=== Stage 1: Frame ===
-Define the problem structure and objectives.
+RESTATEMENT
+Before diving in, restate the problem in your own words.
+Restate the problem:
 > ...
 ```
 
@@ -75,7 +82,7 @@ walks you through each reasoning stage.  Your responses must contain
 at least ten characters; the tool will ask you to expand very short
 answers.
 
-For stages that involve lists (Hypotheses, Analyses and Updates) you
+For stages that involve lists (Assumptions, Hypotheses, Analyses and Updates) you
 enter one item at a time and decide whether to add another.  All
 responses are saved to a JSON file in `sessions/` after each stage to
 prevent data loss.

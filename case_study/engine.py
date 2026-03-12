@@ -1,8 +1,9 @@
 """
 Core logic for running a case study session.
 
-The engine orchestrates the user through the five stages of the
-reasoning loop: Frame → Hypothesize → Analyze → Update → Conclude.
+The engine orchestrates the user through the eight stages of the
+reasoning loop: Restate → Frame → Assumptions → Hypothesize →
+Analyze → Update → Conclude → Additional Insights.
 It interacts with the CLI, prompts for user input, validates
 responses, optionally invokes the AI coach, and persists the session
 state after each stage.
@@ -11,9 +12,8 @@ state after each stage.
 from __future__ import annotations
 
 import json
-import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List
 
 from . import cases, coach, validation
 from .session import Session, list_sessions
@@ -21,8 +21,90 @@ from .session import Session, list_sessions
 
 FRAMEWORKS_FILE = Path(__file__).resolve().parent.parent / "data" / "frameworks.json"
 
+# ---------------------------------------------------------------------------
+# Stage definitions – each stage is described declaratively so the main
+# run loop can handle them uniformly without per-stage if/elif branches.
+# ---------------------------------------------------------------------------
 
-def load_frameworks() -> List[dict]:
+@dataclass(frozen=True)
+class StageSpec:
+    """Declarative description of a single reasoning stage."""
+
+    name: str
+    prompt: str
+    multi: bool = False
+    item_name: str = ""
+    preamble: tuple[str, ...] = ()
+    offer_frameworks: bool = False
+
+
+STAGES: tuple[StageSpec, ...] = (
+    StageSpec(
+        name="restatement",
+        prompt="Restate the problem:\n> ",
+        preamble=(
+            "Before diving in, restate the problem in your own words.",
+            "This confirms your understanding and highlights any clarifying questions.",
+        ),
+    ),
+    StageSpec(
+        name="frame",
+        prompt="How would you structure this problem? Which framework(s) will you use?\n> ",
+        offer_frameworks=True,
+    ),
+    StageSpec(
+        name="assumptions",
+        prompt="",
+        multi=True,
+        item_name="Assumption",
+        preamble=(
+            "State and justify your key assumptions before proceeding.",
+            "e.g., 'I assume US population of 330M' or 'I assume no competitor response in year 1.'",
+        ),
+    ),
+    StageSpec(
+        name="hypotheses",
+        prompt="",
+        multi=True,
+        item_name="Hypothesis",
+        preamble=("Enter one possible explanation or strategic path.",),
+    ),
+    StageSpec(
+        name="analyses",
+        prompt="",
+        multi=True,
+        item_name="Analysis",
+        preamble=("What analysis would you perform?",),
+    ),
+    StageSpec(
+        name="updates",
+        prompt="",
+        multi=True,
+        item_name="Update",
+        preamble=("How do your hypotheses change based on your analysis?",),
+    ),
+    StageSpec(
+        name="conclusion",
+        prompt="What is your recommendation?\n> ",
+    ),
+    StageSpec(
+        name="additional_insights",
+        prompt="Additional insights:\n> ",
+        preamble=(
+            "Go beyond the case: what additional considerations, risks, or opportunities",
+            "should the client think about that were not directly asked?",
+        ),
+    ),
+)
+
+STAGE_NAMES: tuple[str, ...] = tuple(s.name for s in STAGES)
+
+# Fields that hold a single string (None when empty) vs. lists.
+_SINGLE_FIELDS = frozenset(s.name for s in STAGES if not s.multi)
+_MULTI_FIELDS = frozenset(s.name for s in STAGES if s.multi)
+
+
+def load_frameworks() -> list[dict]:
     """Load the business frameworks reference from the data directory."""
     if FRAMEWORKS_FILE.exists():
         with FRAMEWORKS_FILE.open("r", encoding="utf-8") as f:
@@ -42,7 +124,7 @@ def display_frameworks() -> None:
     print()
 
 
-def choose_case(cases_list: List[dict]) -> dict | None:
+def choose_case(cases_list: list[dict]) -> dict | None:
     """Prompt the user to select a case from the provided list.
 
     The cases are displayed with an index and ID.  The user may
@@ -96,9 +178,9 @@ def prompt_for_stage(prompt_text: str) -> str:
         return response
 
 
-def prompt_for_multi_items(item_name: str) -> List[str]:
+def prompt_for_multi_items(item_name: str) -> list[str]:
     """Prompt the user to enter multiple items (hypotheses, analyses or updates)."""
-    items = []
+    items: list[str] = []
     count = 1
     while True:
         prompt = f"{item_name} {count}:\n> "
@@ -119,99 +201,63 @@ def prompt_for_multi_items(item_name: str) -> List[str]:
     return items
 
 
+# ---------------------------------------------------------------------------
+# Session runner
+# ---------------------------------------------------------------------------
+
+def _run_stage(spec: StageSpec, sess: Session, coach_enabled: bool) -> None:
+    """Execute a single stage: print preamble, collect input, save, offer coach."""
+    for line in spec.preamble:
+        print(line)
+
+    if spec.offer_frameworks:
+        if ask_yes_no("Would you like to see a list of common business frameworks? (y/n) "):
+            display_frameworks()
+
+    if spec.multi:
+        value = prompt_for_multi_items(spec.item_name)
+    else:
+        value = prompt_for_stage(spec.prompt)
+
+    setattr(sess, spec.name, value)
+    sess.save()
+
+    if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
+        feedback = coach.provide_feedback(spec.name, value)
+        print("\n" + feedback.format_for_cli() + "\n")
+
+
 def run_session(sess: Session, coach_enabled: bool) -> None:
     """Interactively run through the remaining stages of the session."""
-    # Determine starting point based on which fields are filled
-    stages = [
-        "restatement", "frame", "assumptions", "hypotheses",
-        "analyses", "updates", "conclusion", "additional_insights",
-    ]
-    for stage in stages:
-        if getattr(sess, stage) in (None, [], ""):
-            start_stage = stage
+    # Find the first incomplete stage
+    start_index: int | None = None
+    for i, spec in enumerate(STAGES):
+        if getattr(sess, spec.name) in (None, [], ""):
+            start_index = i
             break
-    else:
-        start_stage = None
 
-    if start_stage is None:
+    if start_index is None:
         print("This session is already complete.")
         return
 
-    for stage in stages[stages.index(start_stage) : ]:
-        print("\n" + stage.upper().replace("_", " "))
-
-        if stage == "restatement":
-            print("Before diving in, restate the problem in your own words.")
-            print("This confirms your understanding and highlights any clarifying questions.")
-            sess.restatement = prompt_for_stage("Restate the problem:\n> ")
-            sess.save()
-            if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
-                feedback = coach.provide_feedback(stage, sess.restatement)
-                print("\n" + feedback.format_for_cli() + "\n")
-
-        elif stage == "frame":
-            if ask_yes_no("Would you like to see a list of common business frameworks? (y/n) "):
-                display_frameworks()
-            sess.frame = prompt_for_stage("How would you structure this problem? Which framework(s) will you use?\n> ")
-            sess.save()
-            if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
-                feedback = coach.provide_feedback(stage, sess.frame)
-                print("\n" + feedback.format_for_cli() + "\n")
-
-        elif stage == "assumptions":
-            print("State and justify your key assumptions before proceeding.")
-            print("e.g., 'I assume US population of 330M' or 'I assume no competitor response in year 1.'")
-            sess.assumptions = prompt_for_multi_items("Assumption")
-            sess.save()
-            if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
-                feedback = coach.provide_feedback(stage, sess.assumptions)
-                print("\n" + feedback.format_for_cli() + "\n")
-
-        elif stage == "hypotheses":
-            print("Enter one possible explanation or strategic path.")
-            sess.hypotheses = prompt_for_multi_items("Hypothesis")
-            sess.save()
-            if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
-                feedback = coach.provide_feedback(stage, sess.hypotheses)
-                print("\n" + feedback.format_for_cli() + "\n")
-
-        elif stage == "analyses":
-            print("What analysis would you perform?")
-            sess.analyses = prompt_for_multi_items("Analysis")
-            sess.save()
-            if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
-                feedback = coach.provide_feedback(stage, sess.analyses)
-                print("\n" + feedback.format_for_cli() + "\n")
-
-        elif stage == "updates":
-            print("How do your hypotheses change based on your analysis?")
-            sess.updates = prompt_for_multi_items("Update")
-            sess.save()
-            if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
-                feedback = coach.provide_feedback(stage, sess.updates)
-                print("\n" + feedback.format_for_cli() + "\n")
-
-        elif stage == "conclusion":
-            sess.conclusion = prompt_for_stage("What is your recommendation?\n> ")
-            sess.save()
-            if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
-                feedback = coach.provide_feedback(stage, sess.conclusion)
-                print("\n" + feedback.format_for_cli() + "\n")
-
-        elif stage == "additional_insights":
-            print("Go beyond the case: what additional considerations, risks, or opportunities")
-            print("should the client think about that were not directly asked?")
-            sess.additional_insights = prompt_for_stage("Additional insights:\n> ")
-            sess.save()
-            if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
-                feedback = coach.provide_feedback(stage, sess.additional_insights)
-                print("\n" + feedback.format_for_cli() + "\n")
-
-        else:
-            raise ValueError(f"Unknown stage: {stage}")
+    for spec in STAGES[start_index:]:
+        print("\n" + spec.name.upper().replace("_", " "))
+        _run_stage(spec, sess, coach_enabled)
 
     print("\nSession complete. Your reasoning has been saved.")
 
+
+def _clear_stage(sess: Session, name: str) -> None:
+    """Reset a single stage field to its empty default."""
+    if name in _SINGLE_FIELDS:
+        setattr(sess, name, None)
+    else:
+        setattr(sess, name, [])
+
+
+# ---------------------------------------------------------------------------
+# Top‑level commands
+# ---------------------------------------------------------------------------
 
 def start_session(coach_flag: bool | None) -> None:
     """Start a new case study session."""
@@ -243,16 +289,7 @@ def resume_session(session_file: str, coach_flag: bool | None) -> None:
         print(f"Failed to load session '{session_file}': {e}")
         return
     # Determine if session is complete
-    complete = all([
-        sess.restatement,
-        sess.frame,
-        sess.assumptions,
-        sess.hypotheses,
-        sess.analyses,
-        sess.updates,
-        sess.conclusion,
-        sess.additional_insights,
-    ])
+    complete = all(getattr(sess, name) for name in STAGE_NAMES)
     # Ask about coach if not specified
     if coach_flag is None:
         coach_enabled = ask_yes_no("Would you like to enable coach mode for this session? (y/n) ")
@@ -268,19 +305,12 @@ def resume_session(session_file: str, coach_flag: bool | None) -> None:
         while True:
             choice = input("Select an option (1/2/3): ").strip()
             if choice == "1":
-                # Review – nothing to do
                 return
             elif choice == "2":
-                # Duplicate: create new session with same data except new timestamp
                 new_sess = Session.new(sess.case_id)
-                new_sess.restatement = sess.restatement
-                new_sess.frame = sess.frame
-                new_sess.assumptions = list(sess.assumptions)
-                new_sess.hypotheses = list(sess.hypotheses)
-                new_sess.analyses = list(sess.analyses)
-                new_sess.updates = list(sess.updates)
-                new_sess.conclusion = sess.conclusion
-                new_sess.additional_insights = sess.additional_insights
+                for name in STAGE_NAMES:
+                    val = getattr(sess, name)
+                    setattr(new_sess, name, list(val) if isinstance(val, list) else val)
                 run_session(new_sess, coach_enabled)
                 return
             elif choice == "3":
@@ -290,7 +320,6 @@ def resume_session(session_file: str, coach_flag: bool | None) -> None:
     else:
         print("Resuming session...")
         print_session(sess)
-        # Ask user whether to continue from next incomplete stage or edit most recent completed stage
         print("Options:")
         print("1. Continue from next incomplete stage")
         print("2. Edit most recent completed stage")
@@ -301,26 +330,15 @@ def resume_session(session_file: str, coach_flag: bool | None) -> None:
                 run_session(sess, coach_enabled)
                 return
             elif choice == "2":
-                # Determine last completed stage
-                # Stages order
-                stage_order = [
-                    "restatement", "frame", "assumptions", "hypotheses",
-                    "analyses", "updates", "conclusion", "additional_insights",
-                ]
                 last_stage_index = -1
-                for i, stg in enumerate(stage_order):
-                    val = getattr(sess, stg)
-                    if val:
+                for i, name in enumerate(STAGE_NAMES):
+                    if getattr(sess, name):
                         last_stage_index = i
                     else:
                         break
                 if last_stage_index >= 0:
-                    # Clear last stage and subsequent
-                    for stg in stage_order[last_stage_index:]:
-                        if stg in ("restatement", "frame", "conclusion", "additional_insights"):
-                            setattr(sess, stg, None)
-                        else:
-                            setattr(sess, stg, [])
+                    for name in STAGE_NAMES[last_stage_index:]:
+                        _clear_stage(sess, name)
                     sess.save()
                     run_session(sess, coach_enabled)
                     return
@@ -337,31 +355,13 @@ def print_session(sess: Session) -> None:
     """Pretty‑print the contents of a session."""
     print(f"Case ID: {sess.case_id}")
     print(f"Timestamp: {sess.timestamp}")
-    if sess.restatement:
-        print("\nRESTATEMENT:")
-        print(sess.restatement)
-    if sess.frame:
-        print("\nFRAME:")
-        print(sess.frame)
-    if sess.assumptions:
-        print("\nASSUMPTIONS:")
-        for i, a in enumerate(sess.assumptions, start=1):
-            print(f"  {i}. {a}")
-    if sess.hypotheses:
-        print("\nHYPOTHESES:")
-        for i, h in enumerate(sess.hypotheses, start=1):
-            print(f"  {i}. {h}")
-    if sess.analyses:
-        print("\nANALYSES:")
-        for i, a in enumerate(sess.analyses, start=1):
-            print(f"  {i}. {a}")
-    if sess.updates:
-        print("\nUPDATES:")
-        for i, u in enumerate(sess.updates, start=1):
-            print(f"  {i}. {u}")
-    if sess.conclusion:
-        print("\nCONCLUSION:")
-        print(sess.conclusion)
-    if sess.additional_insights:
-        print("\nADDITIONAL INSIGHTS:")
-        print(sess.additional_insights)
+    for spec in STAGES:
+        val = getattr(sess, spec.name)
+        if not val:
+            continue
+        print(f"\n{spec.name.upper().replace('_', ' ')}:")
+        if isinstance(val, list):
+            for i, item in enumerate(val, start=1):
+                print(f"  {i}. {item}")
+        else:
+            print(val)

@@ -12,13 +12,9 @@ resumption or review.
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
-
-from zoneinfo import ZoneInfo
 
 
 SESSIONS_DIR = Path(__file__).resolve().parent.parent / "sessions"
@@ -30,14 +26,14 @@ class Session:
 
     case_id: str
     timestamp: str
-    restatement: Optional[str] = None
-    frame: Optional[str] = None
-    assumptions: List[str] = field(default_factory=list)
-    hypotheses: List[str] = field(default_factory=list)
-    analyses: List[str] = field(default_factory=list)
-    updates: List[str] = field(default_factory=list)
-    conclusion: Optional[str] = None
-    additional_insights: Optional[str] = None
+    restatement: str | None = None
+    frame: str | None = None
+    assumptions: list[str] = field(default_factory=list)
+    hypotheses: list[str] = field(default_factory=list)
+    analyses: list[str] = field(default_factory=list)
+    updates: list[str] = field(default_factory=list)
+    conclusion: str | None = None
+    additional_insights: str | None = None
 
     @classmethod
     def new(cls, case_id: str) -> "Session":
@@ -45,8 +41,7 @@ class Session:
 
         The timestamp is generated in the user's local timezone.
         """
-        tz = ZoneInfo("America/Chicago")
-        timestamp = datetime.now(tz).strftime("%Y-%m-%d_%H-%M-%S")
+        timestamp = datetime.now().astimezone().strftime("%Y-%m-%d_%H-%M-%S")
         return cls(case_id=case_id, timestamp=timestamp)
 
     @property
@@ -81,7 +76,7 @@ class Session:
         )
 
 
-def list_sessions(directory: Path = SESSIONS_DIR) -> List[Path]:
+def list_sessions(directory: Path = SESSIONS_DIR) -> list[Path]:
     """Return a list of session file paths sorted by modification time.
 
     The directory is created if it does not already exist.  Only files

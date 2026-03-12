@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any
 
 
 CASES_FILE = Path(__file__).resolve().parent.parent / "data" / "sample_cases.json"
 
 
-def load_cases(path: Path = CASES_FILE) -> List[Dict[str, Any]]:
+def load_cases(path: Path = CASES_FILE) -> list[dict[str, Any]]:
     """Load the list of case definitions from the given JSON file.
 
     Parameters
@@ -34,6 +34,6 @@ def load_cases(path: Path = CASES_FILE) -> List[Dict[str, Any]]:
         return json.load(f)
 
 
-def get_case_by_id(case_id: str, cases: List[Dict[str, Any]]) -> Dict[str, Any] | None:
+def get_case_by_id(case_id: str, cases: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Return the case dictionary matching the given identifier or ``None`` if not found."""
     return next((c for c in cases if c.get("id") == case_id), None)

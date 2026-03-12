@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
 
-from case_study.session import Session
+import pytest
+
+from case_study.session import Session, list_sessions
 
 
 def test_new_session_has_case_id():
@@ -45,3 +47,67 @@ def test_session_save_creates_directory(tmp_path):
     session = Session.new("test")
     session.save(nested)
     assert (nested / session.filename).exists()
+
+
+def test_new_session_defaults_are_empty():
+    session = Session.new("test")
+    assert session.restatement is None
+    assert session.frame is None
+    assert session.assumptions == []
+    assert session.hypotheses == []
+    assert session.analyses == []
+    assert session.updates == []
+    assert session.conclusion is None
+    assert session.additional_insights is None
+
+
+def test_load_missing_file_raises():
+    with pytest.raises(FileNotFoundError):
+        Session.load("/nonexistent/path/file.json")
+
+
+def test_load_backwards_compatible(tmp_path):
+    """Loading a JSON without the newer fields should still work."""
+    data = {"case_id": "old", "timestamp": "2025-01-01_00-00-00", "frame": "f"}
+    path = tmp_path / "old.json"
+    path.write_text(json.dumps(data))
+    sess = Session.load(path)
+    assert sess.case_id == "old"
+    assert sess.frame == "f"
+    assert sess.restatement is None
+    assert sess.assumptions == []
+    assert sess.additional_insights is None
+
+
+def test_session_timestamp_is_local():
+    """Timestamp should not be UTC-specific; just check format."""
+    import re
+    sess = Session.new("tz_test")
+    assert re.match(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}", sess.timestamp)
+
+
+def test_list_sessions_returns_json_only(tmp_path):
+    (tmp_path / "a.json").write_text("{}")
+    (tmp_path / "b.txt").write_text("not json")
+    (tmp_path / "c.json").write_text("{}")
+    result = list_sessions(tmp_path)
+    assert len(result) == 2
+    assert all(p.suffix == ".json" for p in result)
+
+
+def test_list_sessions_creates_directory(tmp_path):
+    target = tmp_path / "new_dir"
+    assert not target.exists()
+    result = list_sessions(target)
+    assert target.exists()
+    assert result == []
+
+
+def test_save_overwrite(tmp_path):
+    """Saving the same session twice should overwrite the file."""
+    sess = Session(case_id="x", timestamp="2026-01-01_00-00-00")
+    sess.save(tmp_path)
+    sess.frame = "updated"
+    sess.save(tmp_path)
+    loaded = Session.load(tmp_path / sess.filename)
+    assert loaded.frame == "updated"
