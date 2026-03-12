@@ -239,6 +239,15 @@ def _format_elapsed(start_time: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
+def _escape_markdown(text: str) -> str:
+    """Escape characters that Streamlit's markdown would misinterpret.
+
+    - ``$`` triggers LaTeX math rendering
+    - ``<`` / ``>`` are parsed as HTML tags
+    """
+    return text.replace("$", "\\$").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _render_case_context(context_text: str):
     """Render case context with visual structure: headers, bullets, tables, and prose."""
     if not context_text:
@@ -283,7 +292,7 @@ def _render_case_context(context_text: str):
         # Detect section headers: lines ending with ":" that are short-ish
         # e.g. "Current challenges:", "Financial snapshot:", "Customer segments:"
         if stripped.endswith(":") and len(stripped) < 80 and not stripped.startswith("-"):
-            st.markdown(f"**{stripped}**")
+            st.markdown(f"**{_escape_markdown(stripped)}**")
             i += 1
             continue
 
@@ -296,7 +305,7 @@ def _render_case_context(context_text: str):
                 s = lines[i]
                 if s.strip() and (re.match(r"^\s{2,}\S", s) or not s.strip()):
                     if s.strip():
-                        indented_lines.append(f"- {s.strip()}")
+                        indented_lines.append(f"- {_escape_markdown(s.strip())}")
                     i += 1
                 else:
                     break
@@ -310,7 +319,7 @@ def _render_case_context(context_text: str):
             while i < len(lines):
                 s = lines[i].strip()
                 if s.startswith("- "):
-                    bullet_lines.append(s)
+                    bullet_lines.append(f"- {_escape_markdown(s[2:])}")
                     i += 1
                 elif not s:
                     i += 1
@@ -336,7 +345,7 @@ def _render_case_context(context_text: str):
                 break
             if re.match(r"^\s{2,}\S", lines[i]) and ":" in s:
                 break
-            para_lines.append(s)
+            para_lines.append(_escape_markdown(s))
             i += 1
         if para_lines:
             st.markdown(" ".join(para_lines))
@@ -570,8 +579,28 @@ def render_session():
         _render_single_input(stage_name, stage_idx)
 
 
+def _render_previous_response(stage_name: str):
+    """Show the user's previous response if revising a stage."""
+    prev_key = f"previous_response_{stage_name}"
+    prev = st.session_state.get(prev_key)
+    if prev:
+        with st.expander("Your previous response", expanded=True):
+            if isinstance(prev, list):
+                for j, item in enumerate(prev, 1):
+                    st.markdown(f"{j}. {item}")
+            else:
+                st.markdown(prev)
+            # Also show the feedback that prompted revision
+            fb_key = f"feedback_history_{stage_name}"
+            fb = st.session_state.get(fb_key)
+            if fb:
+                st.markdown("**Coach feedback on this response:**")
+                _render_feedback_display(fb)
+
+
 def _render_single_input(stage_name: str, stage_idx: int):
     """Render a text area for a single-response stage."""
+    _render_previous_response(stage_name)
     text_key = f"input_{stage_name}"
     response = st.text_area(
         f"Your {STAGE_DISPLAY_NAMES.get(stage_name, _display_name(stage_name))}:",
@@ -594,6 +623,7 @@ def _render_single_input(stage_name: str, stage_idx: int):
 
 def _render_multi_input(stage_name: str, item_name: str, stage_idx: int):
     """Render an add-one-at-a-time interface for multi-item stages."""
+    _render_previous_response(stage_name)
     items_key = f"items_{stage_name}"
     if items_key not in st.session_state:
         st.session_state[items_key] = []
@@ -667,7 +697,7 @@ def _clear_stage_input_keys():
         k
         for k in st.session_state
         if k.startswith(
-            ("input_", "items_", "new_item_", "submitted_", "content_", "feedback_", "add_counter_")
+            ("input_", "items_", "new_item_", "submitted_", "content_", "feedback_", "add_counter_", "previous_response_")
         )
     ]
     for k in keys_to_remove:
@@ -723,7 +753,7 @@ def render_coach_feedback():
                 # Save feedback for report
                 st.session_state[f"feedback_history_{spec.name}"] = fb
                 if st.button("Continue to next stage", key=f"continue_{spec.name}"):
-                    _clear_submitted(spec.name)
+                    _clear_submitted(spec.name, clear_previous=True)
                     st.rerun()
             else:
                 st.markdown(
@@ -734,6 +764,11 @@ def render_coach_feedback():
                     # Increment attempt counter
                     attempts_key = f"attempts_{spec.name}"
                     st.session_state[attempts_key] = st.session_state.get(attempts_key, 1) + 1
+                    # Save previous response for reference before clearing
+                    prev_key = f"previous_response_{spec.name}"
+                    content = st.session_state.get(f"content_{spec.name}")
+                    if content:
+                        st.session_state[prev_key] = content
                     # Clear the stage value so the user can redo it
                     sess = st.session_state.session
                     if spec.multi:
@@ -793,10 +828,12 @@ def _render_feedback_display(fb: coach.CoachFeedback):
     )
 
 
-def _clear_submitted(stage_name: str):
+def _clear_submitted(stage_name: str, clear_previous: bool = False):
     """Remove submission-related keys for a stage."""
     for prefix in ("submitted_", "content_", "feedback_", "items_", "add_counter_"):
         st.session_state.pop(f"{prefix}{stage_name}", None)
+    if clear_previous:
+        st.session_state.pop(f"previous_response_{stage_name}", None)
 
 
 # ---------------------------------------------------------------------------
