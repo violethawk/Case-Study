@@ -248,6 +248,11 @@ def _escape_markdown(text: str) -> str:
     return text.replace("$", "\\$").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _md(text: str, **kwargs):
+    """Render markdown with automatic escaping of dollar signs and angle brackets."""
+    st.markdown(_escape_markdown(text), **kwargs)
+
+
 def _render_case_context(context_text: str):
     """Render case context with visual structure: headers, bullets, tables, and prose."""
     if not context_text:
@@ -413,11 +418,11 @@ def render_case_selection():
     for case in filtered:
         diff = case.get("difficulty", "?")
         diff_emoji = {"easy": "🟢", "medium": "🟡", "hard": "🔴"}.get(diff, "⚪")
-        with st.expander(f"{diff_emoji} **{_display_name(case['id'])}** -- {case['prompt'][:80]}..."):
+        with st.expander(f"{diff_emoji} **{_display_name(case['id'])}** -- {_escape_markdown(case['prompt'][:80])}..."):
             st.markdown(
                 f"**Category:** {_display_name(case.get('category', 'N/A'))}  |  **Difficulty:** {diff.capitalize()}"
             )
-            st.markdown(f"**Prompt:** {case['prompt']}")
+            _md(f"**Prompt:** {case['prompt']}")
             if case.get("context"):
                 st.markdown("**Context preview:**")
                 _render_case_context(case["context"][:300] + ("..." if len(case.get("context", "")) > 300 else ""))
@@ -458,7 +463,7 @@ def render_session_review():
 
     # Case info
     st.markdown(f"**Case:** {_display_name(sess.case_id)}")
-    st.markdown(f"**Prompt:** {case['prompt']}")
+    _md(f"**Prompt:** {case['prompt']}")
     if st.session_state.get("timer_start"):
         elapsed = _format_elapsed(st.session_state.timer_start)
         st.markdown(f"**Total time:** {elapsed}")
@@ -476,9 +481,9 @@ def render_session_review():
 
         if isinstance(val, list):
             for j, item in enumerate(val, 1):
-                st.markdown(f"{j}. {item}")
+                _md(f"{j}. {item}")
         else:
-            st.markdown(val if val else "_No response_")
+            _md(val if val else "_No response_")
 
         # Show any stored coach feedback for this stage
         feedback_history_key = f"feedback_history_{spec.name}"
@@ -516,7 +521,7 @@ def render_session():
         f"</div>",
         unsafe_allow_html=True,
     )
-    st.markdown(f"**Prompt:** {case['prompt']}")
+    _md(f"**Prompt:** {case['prompt']}")
     if case.get("context"):
         with st.expander("View full case context"):
             _render_case_context(case["context"])
@@ -537,9 +542,9 @@ def render_session():
         with st.expander(label, expanded=is_most_recent):
             if isinstance(val, list):
                 for j, item in enumerate(val, 1):
-                    st.markdown(f"{j}. {item}")
+                    _md(f"{j}. {item}")
             else:
-                st.markdown(val)
+                _md(val)
 
     # All done?
     if stage_idx >= total:
@@ -578,9 +583,9 @@ def _render_previous_response(stage_name: str):
         with st.expander("Your previous response", expanded=True):
             if isinstance(prev, list):
                 for j, item in enumerate(prev, 1):
-                    st.markdown(f"{j}. {item}")
+                    _md(f"{j}. {item}")
             else:
-                st.markdown(prev)
+                _md(prev)
             # Also show the feedback that prompted revision
             fb_key = f"feedback_history_{stage_name}"
             fb = st.session_state.get(fb_key)
@@ -609,7 +614,7 @@ def _render_framework_input(stage_name: str):
                 fw_name = choice.split(" — ")[0]
                 fw = next((f for f in frameworks if f["name"] == fw_name), None)
                 if fw:
-                    st.caption(f"**{fw['name']}:** {fw['description']}")
+                    st.caption(f"**{fw['name']}:** {_escape_markdown(fw['description'])}")
     else:
         selected = []
 
@@ -679,7 +684,7 @@ def _render_multi_input(stage_name: str, item_name: str, stage_idx: int):
         for j, item in enumerate(items):
             col1, col2 = st.columns([10, 1])
             with col1:
-                st.markdown(f"{j + 1}. {item}")
+                _md(f"{j + 1}. {item}")
             with col2:
                 if st.button("X", key=f"remove_{stage_name}_{j}"):
                     st.session_state[items_key].pop(j)
@@ -849,19 +854,19 @@ def _render_feedback_display(fb: coach.CoachFeedback):
     st.markdown("**Coach Feedback**")
     st.markdown(
         f'<div class="feedback-card feedback-strengths">'
-        f"<strong>Strengths:</strong> {fb.strengths}"
+        f"<strong>Strengths:</strong> {_escape_markdown(fb.strengths)}"
         f"</div>",
         unsafe_allow_html=True,
     )
     st.markdown(
         f'<div class="feedback-card feedback-gaps">'
-        f"<strong>Gaps:</strong> {fb.gaps}"
+        f"<strong>Gaps:</strong> {_escape_markdown(fb.gaps)}"
         f"</div>",
         unsafe_allow_html=True,
     )
     st.markdown(
         f'<div class="feedback-card feedback-questions">'
-        f"<strong>Questions to consider:</strong> {fb.questions}"
+        f"<strong>Questions to consider:</strong> {_escape_markdown(fb.questions)}"
         f"</div>",
         unsafe_allow_html=True,
     )
