@@ -8,3 +8,7 @@ readme = "README.md"
 
 [project.scripts]
 case-study = "case_study.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
