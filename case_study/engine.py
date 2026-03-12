@@ -10,12 +10,36 @@ state after each stage.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import List
 
 from . import cases, coach, validation
 from .session import Session, list_sessions
+
+
+FRAMEWORKS_FILE = Path(__file__).resolve().parent.parent / "data" / "frameworks.json"
+
+
+def load_frameworks() -> List[dict]:
+    """Load the business frameworks reference from the data directory."""
+    if FRAMEWORKS_FILE.exists():
+        with FRAMEWORKS_FILE.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+
+def display_frameworks() -> None:
+    """Print a summary of available business frameworks."""
+    frameworks = load_frameworks()
+    if not frameworks:
+        return
+    print("\nAVAILABLE FRAMEWORKS FOR REFERENCE:")
+    for fw in frameworks:
+        print(f"  {fw['name']} ({fw['full_name']})")
+        print(f"    {fw['description'][:100]}...")
+    print()
 
 
 def choose_case(cases_list: List[dict]) -> dict | None:
@@ -98,28 +122,51 @@ def prompt_for_multi_items(item_name: str) -> List[str]:
 def run_session(sess: Session, coach_enabled: bool) -> None:
     """Interactively run through the remaining stages of the session."""
     # Determine starting point based on which fields are filled
-    stages = ["frame", "hypotheses", "analyses", "updates", "conclusion"]
+    stages = [
+        "restatement", "frame", "assumptions", "hypotheses",
+        "analyses", "updates", "conclusion", "additional_insights",
+    ]
     for stage in stages:
-        if getattr(sess, stage if stage != "analyses" else "analyses") in (None, [], ""):
+        if getattr(sess, stage) in (None, [], ""):
             start_stage = stage
             break
     else:
-        # All complete
         start_stage = None
 
     if start_stage is None:
         print("This session is already complete.")
         return
 
-    # Stage definitions with prompts
     for stage in stages[stages.index(start_stage) : ]:
-        print("\n" + stage.upper())
-        if stage == "frame":
-            sess.frame = prompt_for_stage("How would you structure this problem?\n> ")
+        print("\n" + stage.upper().replace("_", " "))
+
+        if stage == "restatement":
+            print("Before diving in, restate the problem in your own words.")
+            print("This confirms your understanding and highlights any clarifying questions.")
+            sess.restatement = prompt_for_stage("Restate the problem:\n> ")
+            sess.save()
+            if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
+                feedback = coach.provide_feedback(stage, sess.restatement)
+                print("\n" + feedback.format_for_cli() + "\n")
+
+        elif stage == "frame":
+            if ask_yes_no("Would you like to see a list of common business frameworks? (y/n) "):
+                display_frameworks()
+            sess.frame = prompt_for_stage("How would you structure this problem? Which framework(s) will you use?\n> ")
             sess.save()
             if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
                 feedback = coach.provide_feedback(stage, sess.frame)
                 print("\n" + feedback.format_for_cli() + "\n")
+
+        elif stage == "assumptions":
+            print("State and justify your key assumptions before proceeding.")
+            print("e.g., 'I assume US population of 330M' or 'I assume no competitor response in year 1.'")
+            sess.assumptions = prompt_for_multi_items("Assumption")
+            sess.save()
+            if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
+                feedback = coach.provide_feedback(stage, sess.assumptions)
+                print("\n" + feedback.format_for_cli() + "\n")
+
         elif stage == "hypotheses":
             print("Enter one possible explanation or strategic path.")
             sess.hypotheses = prompt_for_multi_items("Hypothesis")
@@ -127,6 +174,7 @@ def run_session(sess: Session, coach_enabled: bool) -> None:
             if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
                 feedback = coach.provide_feedback(stage, sess.hypotheses)
                 print("\n" + feedback.format_for_cli() + "\n")
+
         elif stage == "analyses":
             print("What analysis would you perform?")
             sess.analyses = prompt_for_multi_items("Analysis")
@@ -134,6 +182,7 @@ def run_session(sess: Session, coach_enabled: bool) -> None:
             if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
                 feedback = coach.provide_feedback(stage, sess.analyses)
                 print("\n" + feedback.format_for_cli() + "\n")
+
         elif stage == "updates":
             print("How do your hypotheses change based on your analysis?")
             sess.updates = prompt_for_multi_items("Update")
@@ -141,14 +190,26 @@ def run_session(sess: Session, coach_enabled: bool) -> None:
             if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
                 feedback = coach.provide_feedback(stage, sess.updates)
                 print("\n" + feedback.format_for_cli() + "\n")
+
         elif stage == "conclusion":
             sess.conclusion = prompt_for_stage("What is your recommendation?\n> ")
             sess.save()
             if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
                 feedback = coach.provide_feedback(stage, sess.conclusion)
                 print("\n" + feedback.format_for_cli() + "\n")
+
+        elif stage == "additional_insights":
+            print("Go beyond the case: what additional considerations, risks, or opportunities")
+            print("should the client think about that were not directly asked?")
+            sess.additional_insights = prompt_for_stage("Additional insights:\n> ")
+            sess.save()
+            if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
+                feedback = coach.provide_feedback(stage, sess.additional_insights)
+                print("\n" + feedback.format_for_cli() + "\n")
+
         else:
             raise ValueError(f"Unknown stage: {stage}")
+
     print("\nSession complete. Your reasoning has been saved.")
 
 
@@ -183,11 +244,14 @@ def resume_session(session_file: str, coach_flag: bool | None) -> None:
         return
     # Determine if session is complete
     complete = all([
+        sess.restatement,
         sess.frame,
+        sess.assumptions,
         sess.hypotheses,
         sess.analyses,
         sess.updates,
         sess.conclusion,
+        sess.additional_insights,
     ])
     # Ask about coach if not specified
     if coach_flag is None:
@@ -209,11 +273,14 @@ def resume_session(session_file: str, coach_flag: bool | None) -> None:
             elif choice == "2":
                 # Duplicate: create new session with same data except new timestamp
                 new_sess = Session.new(sess.case_id)
+                new_sess.restatement = sess.restatement
                 new_sess.frame = sess.frame
+                new_sess.assumptions = list(sess.assumptions)
                 new_sess.hypotheses = list(sess.hypotheses)
                 new_sess.analyses = list(sess.analyses)
                 new_sess.updates = list(sess.updates)
                 new_sess.conclusion = sess.conclusion
+                new_sess.additional_insights = sess.additional_insights
                 run_session(new_sess, coach_enabled)
                 return
             elif choice == "3":
@@ -236,10 +303,13 @@ def resume_session(session_file: str, coach_flag: bool | None) -> None:
             elif choice == "2":
                 # Determine last completed stage
                 # Stages order
-                stage_order = ["frame", "hypotheses", "analyses", "updates", "conclusion"]
+                stage_order = [
+                    "restatement", "frame", "assumptions", "hypotheses",
+                    "analyses", "updates", "conclusion", "additional_insights",
+                ]
                 last_stage_index = -1
                 for i, stg in enumerate(stage_order):
-                    val = getattr(sess, stg if stg != "analyses" else "analyses")
+                    val = getattr(sess, stg)
                     if val:
                         last_stage_index = i
                     else:
@@ -247,16 +317,10 @@ def resume_session(session_file: str, coach_flag: bool | None) -> None:
                 if last_stage_index >= 0:
                     # Clear last stage and subsequent
                     for stg in stage_order[last_stage_index:]:
-                        if stg == "frame":
-                            sess.frame = None
-                        elif stg == "hypotheses":
-                            sess.hypotheses = []
-                        elif stg == "analyses":
-                            sess.analyses = []
-                        elif stg == "updates":
-                            sess.updates = []
-                        elif stg == "conclusion":
-                            sess.conclusion = None
+                        if stg in ("restatement", "frame", "conclusion", "additional_insights"):
+                            setattr(sess, stg, None)
+                        else:
+                            setattr(sess, stg, [])
                     sess.save()
                     run_session(sess, coach_enabled)
                     return
@@ -273,9 +337,16 @@ def print_session(sess: Session) -> None:
     """Pretty‑print the contents of a session."""
     print(f"Case ID: {sess.case_id}")
     print(f"Timestamp: {sess.timestamp}")
+    if sess.restatement:
+        print("\nRESTATEMENT:")
+        print(sess.restatement)
     if sess.frame:
         print("\nFRAME:")
         print(sess.frame)
+    if sess.assumptions:
+        print("\nASSUMPTIONS:")
+        for i, a in enumerate(sess.assumptions, start=1):
+            print(f"  {i}. {a}")
     if sess.hypotheses:
         print("\nHYPOTHESES:")
         for i, h in enumerate(sess.hypotheses, start=1):
@@ -291,3 +362,6 @@ def print_session(sess: Session) -> None:
     if sess.conclusion:
         print("\nCONCLUSION:")
         print(sess.conclusion)
+    if sess.additional_insights:
+        print("\nADDITIONAL INSIGHTS:")
+        print(sess.additional_insights)

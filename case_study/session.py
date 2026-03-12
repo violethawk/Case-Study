@@ -30,11 +30,14 @@ class Session:
 
     case_id: str
     timestamp: str
+    restatement: Optional[str] = None
     frame: Optional[str] = None
+    assumptions: List[str] = field(default_factory=list)
     hypotheses: List[str] = field(default_factory=list)
     analyses: List[str] = field(default_factory=list)
     updates: List[str] = field(default_factory=list)
     conclusion: Optional[str] = None
+    additional_insights: Optional[str] = None
 
     @classmethod
     def new(cls, case_id: str) -> "Session":
@@ -67,11 +70,14 @@ class Session:
         return cls(
             case_id=data.get("case_id"),
             timestamp=data.get("timestamp"),
+            restatement=data.get("restatement"),
             frame=data.get("frame"),
+            assumptions=data.get("assumptions", []),
             hypotheses=data.get("hypotheses", []),
             analyses=data.get("analyses", []),
             updates=data.get("updates", []),
             conclusion=data.get("conclusion"),
+            additional_insights=data.get("additional_insights"),
         )
 
 

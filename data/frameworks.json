@@ -1,0 +1,74 @@
+[
+  {
+    "name": "3 C's",
+    "full_name": "Company, Customer, Competition",
+    "description": "A framework for analysis that includes understanding the internal operations and strategy of a company, the customers and demand for the product, and competition in existing and new markets.",
+    "best_for": ["strategy", "market-entry", "industry-analysis"]
+  },
+  {
+    "name": "4 P's",
+    "full_name": "Product, Price, Promotion, Place",
+    "description": "A framework used to analyze marketing initiatives and new product launches. Product refers to the characteristics of the item being sold. Price refers to the amount it is sold for. Promotion refers to the strategy of how it is sold (PR, Marketing, etc.). Place refers to the channels through which it is sold and how it is positioned.",
+    "best_for": ["product-launch", "marketing", "pricing"]
+  },
+  {
+    "name": "Cost vs. Benefit",
+    "full_name": "Cost vs. Benefit Analysis",
+    "description": "A framework that divides analysis between the costs incurred by a specific action (physical costs, reputation and brand, etc.) and the benefits that result from the action (efficiency, revenues, strengthening of brand, building relationships, etc.).",
+    "best_for": ["investment", "strategy", "acquisition"]
+  },
+  {
+    "name": "Fixed vs. Variable Costs",
+    "full_name": "Fixed vs. Variable Cost Analysis",
+    "description": "Costs can be split between those that stay constant regardless of activity (fixed costs, e.g., rent) and those that vary based on number of sales (variable costs, e.g., raw materials).",
+    "best_for": ["profitability", "pricing", "breakeven"]
+  },
+  {
+    "name": "Internal vs. External",
+    "full_name": "Internal vs. External Analysis",
+    "description": "Analyzes a business case from an internal perspective (culture, core competencies, products) and external perspective (barriers to entry, industry capacity, competition).",
+    "best_for": ["strategy", "organizational-change", "industry-analysis"]
+  },
+  {
+    "name": "McKinsey 7-S",
+    "full_name": "McKinsey 7-S Model",
+    "description": "Strategy (firm's goals), Structure (organizational form), Staffing (staff requirements), Style (management style), Skills (employee skills needed), Systems (measurement systems needed), Shared Values (firm's culture).",
+    "best_for": ["organizational-change", "integration", "strategy"]
+  },
+  {
+    "name": "Porter's Five Forces",
+    "full_name": "Porter's Five Forces",
+    "description": "A framework to analyze an industry. The five forces are: Power of Suppliers, Power of Buyers, Substitutes, Rivalry (among firms), and Barriers to Entry.",
+    "best_for": ["industry-analysis", "market-entry", "strategy"]
+  },
+  {
+    "name": "Profitability",
+    "full_name": "Profitability Framework",
+    "description": "Profit = Revenues - Costs. Analyze revenues (quantity x price) and costs (fixed vs. variable). To fully understand profitability, study an accounting income statement.",
+    "best_for": ["profitability", "pricing", "turnaround"]
+  },
+  {
+    "name": "STP",
+    "full_name": "Segmenting, Targeting, Positioning",
+    "description": "A framework for finding the correct market for a product or service. Segmenting identifies distinctions between customers, targeting identifies the target group, and positioning is the strategy for appealing to that target group.",
+    "best_for": ["marketing", "product-launch", "market-entry"]
+  },
+  {
+    "name": "Supply vs. Demand",
+    "full_name": "Supply vs. Demand Analysis",
+    "description": "Economic analysis aiming to forecast the price of a good or service based on the intersection of supply and demand curves. Supply analysis looks at production availability; demand analysis looks at consumer desire and willingness to pay.",
+    "best_for": ["pricing", "market-sizing", "industry-analysis"]
+  },
+  {
+    "name": "SWOT",
+    "full_name": "Strengths, Weaknesses, Opportunities, Threats",
+    "description": "A presentation framework that pinpoints an organization's Strengths, Weaknesses, Opportunities, and Threats.",
+    "best_for": ["strategy", "market-entry", "organizational-change"]
+  },
+  {
+    "name": "Value Chain",
+    "full_name": "Value Chain / Supply Chain Analysis",
+    "description": "A framework for understanding the flow of goods and money in an industry. Components include Inbound Logistics, Production Logistics, Outbound Logistics, Sales and Marketing, and Service.",
+    "best_for": ["operations", "cost-reduction", "industry-analysis"]
+  }
+]

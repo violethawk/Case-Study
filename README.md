@@ -4,14 +4,17 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
 Case‑Study is a command‑line application for practising structured
-analytical reasoning.  It guides users through a five‑stage reasoning
+analytical reasoning.  It guides users through an eight‑stage reasoning
 loop modelled after consulting‑style case interviews:
 
-1. **Frame** – define the problem structure and objectives.
-2. **Hypothesize** – generate potential explanations or strategic options.
-3. **Analyze** – outline analyses you would perform to test hypotheses.
-4. **Update** – refine or discard hypotheses based on your analysis.
-5. **Conclude** – summarise your recommendation with supporting rationale and risks.
+1. **Restate** – restate the problem in your own words and identify clarifying questions.
+2. **Frame** – define the problem structure and choose a framework (with an optional reference library of 13 common business frameworks).
+3. **Assumptions** – state and justify key assumptions before proceeding.
+4. **Hypothesize** – generate potential explanations or strategic options.
+5. **Analyze** – outline analyses you would perform to test hypotheses.
+6. **Update** – refine or discard hypotheses based on your analysis.
+7. **Conclude** – summarise your recommendation with supporting rationale and risks.
+8. **Additional Insights** – go beyond the case with implementation risks, second‑order effects and adjacent opportunities.
 
 Unlike a chatbot that attempts to answer cases for you, Case‑Study
 provides a structured environment that encourages you to think
@@ -106,8 +109,8 @@ Sessions are stored in `sessions/` with filenames of the form:
 ```
 
 Each file contains a JSON object with the fields `case_id`,
-`timestamp`, `frame`, `hypotheses`, `analyses`, `updates` and
-`conclusion`.  You can list existing sessions with `python -m
+`timestamp`, `restatement`, `frame`, `assumptions`, `hypotheses`,
+`analyses`, `updates`, `conclusion` and `additional_insights`.  You can list existing sessions with `python -m
 case_study list`.
 
 ## Project Structure
@@ -124,6 +127,7 @@ Case-Study/
 │   ├── session.py       # session persistence
 │   └── validation.py    # input validation helpers
 ├── data/
+│   ├── frameworks.json    # business frameworks reference library
 │   └── sample_cases.json
 ├── sessions/            # saved session files (gitignored)
 ├── tests/               # test suite

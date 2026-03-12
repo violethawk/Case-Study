@@ -19,19 +19,25 @@ def test_session_save_and_load(tmp_path):
     session = Session(
         case_id="test",
         timestamp="2026-01-01_00-00-00",
+        restatement="Test restatement",
         frame="Test frame",
+        assumptions=["assume1", "assume2"],
         hypotheses=["h1", "h2"],
         analyses=["a1"],
         updates=["u1"],
         conclusion="Test conclusion",
+        additional_insights="Test insights",
     )
     session.save(tmp_path)
 
     loaded = Session.load(tmp_path / session.filename)
     assert loaded.case_id == "test"
+    assert loaded.restatement == "Test restatement"
     assert loaded.frame == "Test frame"
+    assert loaded.assumptions == ["assume1", "assume2"]
     assert loaded.hypotheses == ["h1", "h2"]
     assert loaded.conclusion == "Test conclusion"
+    assert loaded.additional_insights == "Test insights"
 
 
 def test_session_save_creates_directory(tmp_path):
