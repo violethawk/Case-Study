@@ -1,0 +1,20 @@
+[
+  {
+    "id": "bank_growth_001",
+    "prompt": "A retail bank wants to grow revenue over the next three years. What strategic options should leadership consider?",
+    "context": "The bank has a strong existing customer base but faces margin pressure and rising digital competition.",
+    "difficulty": "easy"
+  },
+  {
+    "id": "healthcare_banking_001",
+    "prompt": "JPMorgan is considering increasing investment in healthcare banking services. Should the bank expand further in this sector?",
+    "context": "The healthcare sector is large and complex, with strong institutional clients but heavy regulation and specialized needs.",
+    "difficulty": "medium"
+  },
+  {
+    "id": "ai_operations_001",
+    "prompt": "A large financial institution has rolled out internal AI tools broadly, but productivity gains are not translating into cost savings. How should leadership respond?",
+    "context": "Employees are using AI tools frequently, but workflow bottlenecks remain and operating metrics have not improved materially.",
+    "difficulty": "hard"
+  }
+]
