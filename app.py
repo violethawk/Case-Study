@@ -43,6 +43,15 @@ STAGE_DESCRIPTIONS = {
 # ---------------------------------------------------------------------------
 
 
+def _display_name(raw: str) -> str:
+    """Convert an underscore-separated ID into a readable title.
+
+    e.g. 'bank_growth_001' -> 'Bank Growth 001'
+         'additional_insights' -> 'Additional Insights'
+    """
+    return raw.replace("_", " ").title()
+
+
 def get_stage_spec(name: str):
     """Return the StageSpec for the given stage name."""
     return next(s for s in STAGES if s.name == name)
@@ -84,15 +93,20 @@ def render_case_selection():
     categories = sorted({c.get("category", "unknown") for c in all_cases})
     difficulties = sorted({c.get("difficulty", "unknown") for c in all_cases}, key=lambda d: ["easy", "medium", "hard"].index(d) if d in ["easy", "medium", "hard"] else 99)
 
+    cat_labels = {c: _display_name(c) for c in categories}
+    diff_labels = {d: d.capitalize() for d in difficulties}
+
     with col1:
-        cat_filter = st.selectbox("Category", ["All"] + categories)
+        cat_display = st.selectbox("Category", ["All"] + [cat_labels[c] for c in categories])
+        cat_filter = next((k for k, v in cat_labels.items() if v == cat_display), None) if cat_display != "All" else None
     with col2:
-        diff_filter = st.selectbox("Difficulty", ["All"] + difficulties)
+        diff_display = st.selectbox("Difficulty", ["All"] + [diff_labels[d] for d in difficulties])
+        diff_filter = next((k for k, v in diff_labels.items() if v == diff_display), None) if diff_display != "All" else None
 
     filtered = all_cases
-    if cat_filter != "All":
+    if cat_filter:
         filtered = [c for c in filtered if c.get("category") == cat_filter]
-    if diff_filter != "All":
+    if diff_filter:
         filtered = [c for c in filtered if c.get("difficulty") == diff_filter]
 
     st.toggle("Enable Coach Mode", key="coach_enabled", value=st.session_state.get("coach_enabled", True))
@@ -108,8 +122,8 @@ def render_case_selection():
     for case in filtered:
         diff = case.get("difficulty", "?")
         diff_emoji = {"easy": "🟢", "medium": "🟡", "hard": "🔴"}.get(diff, "⚪")
-        with st.expander(f"{diff_emoji} **{case['id']}** — {case['prompt'][:80]}..."):
-            st.markdown(f"**Category:** {case.get('category', 'N/A')}  |  **Difficulty:** {diff}")
+        with st.expander(f"{diff_emoji} **{_display_name(case['id'])}** — {case['prompt'][:80]}..."):
+            st.markdown(f"**Category:** {_display_name(case.get('category', 'N/A'))}  |  **Difficulty:** {diff.capitalize()}")
             st.markdown(f"**Prompt:** {case['prompt']}")
             if case.get("context"):
                 st.markdown(f"**Context:** {case['context'][:300]}{'...' if len(case.get('context', '')) > 300 else ''}")
@@ -134,7 +148,7 @@ def render_session():
     stage_idx = current_stage_index()
 
     # Header
-    st.title(f"Case: {sess.case_id}")
+    st.title(f"Case: {_display_name(sess.case_id)}")
     st.markdown(f"**Prompt:** {case['prompt']}")
     if case.get("context"):
         with st.expander("View full case context"):
@@ -181,7 +195,7 @@ def render_session():
                 for fw in frameworks:
                     st.markdown(f"**{fw['name']}** ({fw['full_name']})")
                     st.caption(fw["description"])
-                    st.markdown(f"*Best for: {', '.join(fw.get('best_for', []))}*")
+                    st.markdown(f"*Best for: {', '.join(_display_name(t) for t in fw.get('best_for', []))}*")
                     st.divider()
 
     # Input
@@ -195,7 +209,7 @@ def _render_single_input(stage_name: str, stage_idx: int):
     """Render a text area for a single-response stage."""
     text_key = f"input_{stage_name}"
     response = st.text_area(
-        f"Your {stage_name.replace('_', ' ')}:",
+        f"Your {_display_name(stage_name)}:",
         key=text_key,
         height=200,
         placeholder="Type your response here...",
@@ -254,7 +268,7 @@ def _render_multi_input(stage_name: str, item_name: str, stage_idx: int):
                 st.rerun()
 
     with col2:
-        if items and st.button(f"Done with {stage_name.replace('_', ' ')}", key=f"done_{stage_name}"):
+        if items and st.button(f"Done with {_display_name(stage_name)}", key=f"done_{stage_name}"):
             setattr(st.session_state.session, stage_name, list(items))
             save_session()
             _after_stage_submit(stage_name, items)
@@ -328,7 +342,7 @@ def render_coach_feedback():
             return True
 
         # --- Optional coach mode (heuristic or no API key) ---
-        st.success(f"Stage '{spec.name.replace('_', ' ')}' saved.")
+        st.success(f"Stage '{_display_name(spec.name)}' saved.")
         if coach_enabled:
             if feedback_key not in st.session_state:
                 if st.button("Get Coach Feedback", key=f"coach_btn_{spec.name}"):
@@ -386,7 +400,8 @@ def render_sidebar():
             st.caption("No saved sessions yet.")
         else:
             for sf in session_files[:20]:
-                if st.button(sf.stem, key=f"load_{sf.stem}", use_container_width=True):
+                label = _display_name(sf.stem)
+                if st.button(label, key=f"load_{sf.stem}", use_container_width=True):
                     _resume_session(sf)
 
 
