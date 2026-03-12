@@ -67,7 +67,6 @@ def provide_feedback(stage: str, content: Iterable[str] | str) -> CoachFeedback:
 
     # Combine length of all responses
     total_length = sum(len(t.strip()) for t in texts)
-    num_items = len(texts)
 
     # Derive generic strengths
     if total_length > 200:

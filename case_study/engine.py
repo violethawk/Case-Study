@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import cases, coach, validation
-from .session import Session, list_sessions
+from .session import Session
 
 
 FRAMEWORKS_FILE = Path(__file__).resolve().parent.parent / "data" / "frameworks.json"

@@ -8,7 +8,7 @@ analytical reasoning.  It guides users through an eight‑stage reasoning
 loop modelled after consulting‑style case interviews:
 
 1. **Restate** – restate the problem in your own words and identify clarifying questions.
-2. **Frame** – define the problem structure and choose a framework (with an optional reference library of 13 common business frameworks).
+2. **Frame** – define the problem structure and choose a framework (with an optional reference library of 12 common business frameworks).
 3. **Assumptions** – state and justify key assumptions before proceeding.
 4. **Hypothesize** – generate potential explanations or strategic options.
 5. **Analyze** – outline analyses you would perform to test hypotheses.

@@ -10,8 +10,6 @@ run ``python -m case_study --help``.
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
 
 from . import engine
 from .session import list_sessions
