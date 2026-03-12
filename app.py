@@ -96,6 +96,10 @@ def render_case_selection():
         filtered = [c for c in filtered if c.get("difficulty") == diff_filter]
 
     st.toggle("Enable Coach Mode", key="coach_enabled", value=st.session_state.get("coach_enabled", True))
+    if st.session_state.get("coach_enabled") and coach.is_ai_enabled():
+        st.caption("AI coaching active — you must pass each stage to advance.")
+    elif st.session_state.get("coach_enabled"):
+        st.caption("Heuristic coaching (set GEMINI_API_KEY for AI-powered gating).")
 
     if not filtered:
         st.info("No cases match the selected filters.")
@@ -276,39 +280,86 @@ def _clear_stage_input_keys():
 
 
 def render_coach_feedback():
-    """Check if any stage was just submitted and offer coach feedback."""
+    """Check if any stage was just submitted and handle coach evaluation.
+
+    When AI coaching is enabled, the coach acts as a gate: the user
+    must pass before advancing.  If not passed, the stage is cleared
+    so the user can revise.  With heuristic coaching (no API key) or
+    coach disabled, the user always advances.
+    """
+    ai_gating = st.session_state.get("coach_enabled", False) and coach.is_ai_enabled()
+
     for spec in STAGES:
         submitted_key = f"submitted_{spec.name}"
-        if st.session_state.get(submitted_key):
-            st.success(f"Stage '{spec.name.replace('_', ' ')}' saved.")
-            if st.session_state.get("coach_enabled", False):
-                feedback_key = f"feedback_{spec.name}"
-                if feedback_key not in st.session_state:
-                    if st.button("Get Coach Feedback", key=f"coach_btn_{spec.name}"):
-                        content = st.session_state[f"content_{spec.name}"]
-                        fb = coach.provide_feedback(spec.name, content)
-                        st.session_state[feedback_key] = fb
+        if not st.session_state.get(submitted_key):
+            continue
 
-                if feedback_key in st.session_state:
-                    fb = st.session_state[feedback_key]
-                    st.markdown("---")
-                    st.markdown("**Coach Feedback**")
-                    st.success(f"**Strengths:** {fb.strengths}")
-                    st.warning(f"**Gaps:** {fb.gaps}")
-                    st.info(f"**Questions to consider:** {fb.questions}")
+        feedback_key = f"feedback_{spec.name}"
+        coach_enabled = st.session_state.get("coach_enabled", False)
 
+        # --- AI gating mode: auto-evaluate on submit ---
+        if ai_gating:
+            if feedback_key not in st.session_state:
+                content = st.session_state[f"content_{spec.name}"]
+                with st.spinner("Coach is evaluating your response..."):
+                    fb = coach.provide_feedback(spec.name, content)
+                st.session_state[feedback_key] = fb
+
+            fb = st.session_state[feedback_key]
+            _render_feedback_display(fb)
+
+            if fb.passed:
+                st.success("You passed this stage!")
                 if st.button("Continue to next stage", key=f"continue_{spec.name}"):
-                    st.session_state.pop(submitted_key, None)
-                    st.session_state.pop(f"content_{spec.name}", None)
-                    st.session_state.pop(f"feedback_{spec.name}", None)
+                    _clear_submitted(spec.name)
                     st.rerun()
             else:
-                if st.button("Continue to next stage", key=f"continue_{spec.name}"):
-                    st.session_state.pop(submitted_key, None)
-                    st.session_state.pop(f"content_{spec.name}", None)
+                st.error("Not yet — revise your response and resubmit.")
+                if st.button("Revise this stage", key=f"revise_{spec.name}"):
+                    # Clear the stage value so the user can redo it
+                    sess = st.session_state.session
+                    if spec.multi:
+                        setattr(sess, spec.name, [])
+                    else:
+                        setattr(sess, spec.name, None)
+                    sess.save()
+                    _clear_submitted(spec.name)
                     st.rerun()
             return True
+
+        # --- Optional coach mode (heuristic or no API key) ---
+        st.success(f"Stage '{spec.name.replace('_', ' ')}' saved.")
+        if coach_enabled:
+            if feedback_key not in st.session_state:
+                if st.button("Get Coach Feedback", key=f"coach_btn_{spec.name}"):
+                    content = st.session_state[f"content_{spec.name}"]
+                    fb = coach.provide_feedback(spec.name, content)
+                    st.session_state[feedback_key] = fb
+
+            if feedback_key in st.session_state:
+                _render_feedback_display(st.session_state[feedback_key])
+
+        if st.button("Continue to next stage", key=f"continue_{spec.name}"):
+            _clear_submitted(spec.name)
+            st.rerun()
+        return True
+
     return False
+
+
+def _render_feedback_display(fb: coach.CoachFeedback):
+    """Render coach feedback in a consistent format."""
+    st.markdown("---")
+    st.markdown("**Coach Feedback**")
+    st.success(f"**Strengths:** {fb.strengths}")
+    st.warning(f"**Gaps:** {fb.gaps}")
+    st.info(f"**Questions to consider:** {fb.questions}")
+
+
+def _clear_submitted(stage_name: str):
+    """Remove submission-related keys for a stage."""
+    for prefix in ("submitted_", "content_", "feedback_", "items_"):
+        st.session_state.pop(f"{prefix}{stage_name}", None)
 
 
 # ---------------------------------------------------------------------------

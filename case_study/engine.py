@@ -215,7 +215,15 @@ def prompt_for_multi_items(item_name: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def _run_stage(spec: StageSpec, sess: Session, coach_enabled: bool) -> None:
-    """Execute a single stage: print preamble, collect input, save, offer coach."""
+    """Execute a single stage: print preamble, collect input, save, offer coach.
+
+    When coach mode is enabled and the AI backend is available, the
+    stage acts as a gate — the user must revise and resubmit until
+    the coach marks the response as passed.  With the heuristic
+    fallback the stage always passes on the first attempt.
+    """
+    ai_gating = coach_enabled and coach.is_ai_enabled()
+
     for line in spec.preamble:
         print(line)
 
@@ -223,17 +231,28 @@ def _run_stage(spec: StageSpec, sess: Session, coach_enabled: bool) -> None:
         if ask_yes_no("Would you like to see a list of common business frameworks? (y/n) "):
             display_frameworks()
 
-    if spec.multi:
-        value = prompt_for_multi_items(spec.item_name)
-    else:
-        value = prompt_for_stage(spec.prompt)
+    while True:
+        if spec.multi:
+            value = prompt_for_multi_items(spec.item_name)
+        else:
+            value = prompt_for_stage(spec.prompt)
 
-    setattr(sess, spec.name, value)
-    sess.save()
+        setattr(sess, spec.name, value)
+        sess.save()
 
-    if coach_enabled and ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
-        feedback = coach.provide_feedback(spec.name, value)
-        print("\n" + feedback.format_for_cli() + "\n")
+        if not coach_enabled:
+            break
+
+        # Always evaluate when AI gating is on; otherwise ask
+        if ai_gating or ask_yes_no("Would you like coach feedback on this stage? (y/n) "):
+            feedback = coach.provide_feedback(spec.name, value)
+            print("\n" + feedback.format_for_cli() + "\n")
+            if feedback.passed:
+                break
+            # Not passed — loop back for revision
+            print("Revise your response and try again.\n")
+        else:
+            break
 
 
 def run_session(sess: Session, coach_enabled: bool) -> None:

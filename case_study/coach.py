@@ -4,8 +4,9 @@ AI coaching module.
 This module provides feedback on the user's reasoning at each stage
 of a case study session.  When a ``GEMINI_API_KEY`` environment
 variable is set the coach calls Google's Gemini 3.1 Flash Lite model
-for tailored feedback.  Otherwise it falls back to deterministic
-heuristics so the app works without any API key.
+for tailored feedback **and** evaluates whether the response meets
+the quality bar to advance (the "Mario levels" gate).  Otherwise it
+falls back to deterministic heuristics that always pass.
 
 The public interface is :func:`provide_feedback`, which always returns
 a :class:`CoachFeedback` dataclass regardless of which backend is used.
@@ -20,23 +21,73 @@ from collections.abc import Iterable
 
 _GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
+# Stage-specific evaluation criteria used in the Gemini prompt.
+STAGE_CRITERIA: dict[str, str] = {
+    "restatement": (
+        "The user must: (1) restate the core question in their own words, "
+        "(2) identify the client/decision-maker, (3) note any key constraints "
+        "or goals mentioned in the prompt. Missing any of these = not passed."
+    ),
+    "frame": (
+        "The user must: (1) choose and name a specific framework or structure, "
+        "(2) explain why it fits this problem, (3) outline the key areas or "
+        "buckets they will analyze. Vague or unstructured answers = not passed."
+    ),
+    "assumptions": (
+        "The user must: (1) state at least 2 explicit assumptions, "
+        "(2) each assumption should be justified (why they believe it), "
+        "(3) flag which assumptions are most critical. Unjustified or missing assumptions = not passed."
+    ),
+    "hypotheses": (
+        "The user must: (1) propose at least 2 distinct hypotheses, "
+        "(2) hypotheses should span different categories (e.g. demand-side vs supply-side, "
+        "internal vs external), (3) each hypothesis should be testable. "
+        "A single hypothesis or overlapping hypotheses = not passed."
+    ),
+    "analyses": (
+        "The user must: (1) describe at least 2 specific analyses they would perform, "
+        "(2) link each analysis to a hypothesis it would test, "
+        "(3) note what data they would need. Vague or disconnected analyses = not passed."
+    ),
+    "updates": (
+        "The user must: (1) reference their earlier hypotheses, "
+        "(2) state which were strengthened or weakened and why, "
+        "(3) note any remaining uncertainty. Simply restating hypotheses = not passed."
+    ),
+    "conclusion": (
+        "The user must: (1) state a clear recommendation, "
+        "(2) support it with reasoning tied to their analysis, "
+        "(3) acknowledge at least one risk or trade-off. "
+        "An unsupported opinion or missing risks = not passed."
+    ),
+    "additional_insights": (
+        "The user must: (1) go beyond what was directly asked, "
+        "(2) mention at least one of: implementation risks, competitive responses, "
+        "second-order effects, or adjacent opportunities, "
+        "(3) show business judgment. Generic or shallow responses = not passed."
+    ),
+}
+
 SYSTEM_PROMPT = """\
-You are an expert case interview coach. The user is practising a \
-consulting-style case study. They have just completed one stage of \
-their reasoning and want feedback.
+You are an expert case interview coach evaluating a user's response \
+at one stage of a consulting-style case study.
 
 Rules:
 - NEVER give away the answer or solve the case for the user.
 - Focus on the QUALITY of their thought process, not the content.
 - Be encouraging but honest about gaps.
 - Keep each section to 2-3 sentences.
+- You MUST evaluate whether the response meets the passing criteria.
+- Be fair but rigorous. A response doesn't need to be perfect to pass, \
+but it must demonstrate genuine effort and hit the key requirements.
 
 Respond with ONLY valid JSON in this exact format (no markdown fences):
-{"strengths": "...", "gaps": "...", "questions": "..."}
+{"passed": true/false, "strengths": "...", "gaps": "...", "questions": "..."}
 
 Where:
-- "strengths" highlights what the user did well in this stage
-- "gaps" identifies what might be missing or could be stronger
+- "passed" is true if the response meets the stage criteria, false otherwise
+- "strengths" highlights what the user did well
+- "gaps" identifies what is missing or weak (especially important if not passed)
 - "questions" suggests 1-2 thought-provoking questions to deepen their reasoning
 """
 
@@ -48,10 +99,14 @@ class CoachFeedback:
     strengths: str
     gaps: str
     questions: str
+    passed: bool = True
 
     def format_for_cli(self) -> str:
         """Return a human-readable representation suitable for the CLI."""
+        status = "PASSED" if self.passed else "NOT YET — revise and resubmit"
         lines = [
+            f"RESULT: {status}",
+            "",
             "STRENGTHS:",
             self.strengths,
             "",
@@ -67,6 +122,11 @@ class CoachFeedback:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+def is_ai_enabled() -> bool:
+    """Return True if the Gemini API key is configured."""
+    return bool(_GEMINI_API_KEY)
+
 
 def provide_feedback(stage: str, content: Iterable[str] | str) -> CoachFeedback:
     """Generate feedback for the given stage and content.
@@ -114,11 +174,17 @@ def _gemini_feedback(stage: str, texts: list[str]) -> CoachFeedback:
         system_instruction=SYSTEM_PROMPT,
     )
 
+    # Resolve stage key for criteria lookup
+    key_aliases = {"analyze": "analyses", "update": "updates", "conclude": "conclusion"}
+    resolved_key = key_aliases.get(stage.lower(), stage.lower())
+    criteria = STAGE_CRITERIA.get(resolved_key, "Evaluate the quality and completeness of the response.")
+
     user_input = "\n".join(texts) if len(texts) > 1 else texts[0]
     prompt = (
         f"Stage: {stage}\n\n"
+        f"Passing criteria for this stage:\n{criteria}\n\n"
         f"User's response:\n{user_input}\n\n"
-        "Provide your coaching feedback as JSON."
+        "Evaluate the response and provide your coaching feedback as JSON."
     )
 
     response = model.generate_content(prompt)
@@ -136,15 +202,20 @@ def _gemini_feedback(stage: str, texts: list[str]) -> CoachFeedback:
         strengths=data.get("strengths", ""),
         gaps=data.get("gaps", ""),
         questions=data.get("questions", ""),
+        passed=bool(data.get("passed", True)),
     )
 
 
 # ---------------------------------------------------------------------------
-# Heuristic fallback
+# Heuristic fallback (always passes — cannot meaningfully evaluate)
 # ---------------------------------------------------------------------------
 
 def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
-    """Generate deterministic feedback based on input length and stage."""
+    """Generate deterministic feedback based on input length and stage.
+
+    The heuristic backend always sets ``passed=True`` because it cannot
+    meaningfully evaluate response quality without an LLM.
+    """
     total_length = sum(len(t.strip()) for t in texts)
 
     # Strengths based on response length
@@ -202,7 +273,6 @@ def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
             "Strong candidates show business judgment by surfacing issues the interviewer didn't explicitly raise."
         ),
     }
-    # Handle alternate stage key names
     key_aliases = {"analyze": "analyses", "update": "updates", "conclude": "conclusion"}
     resolved_key = key_aliases.get(stage_key, stage_key)
     gaps = gaps_map.get(
@@ -252,4 +322,4 @@ def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
         "What other perspectives or dimensions might enrich your reasoning?",
     )
 
-    return CoachFeedback(strengths=strengths, gaps=gaps, questions=questions)
+    return CoachFeedback(strengths=strengths, gaps=gaps, questions=questions, passed=True)
