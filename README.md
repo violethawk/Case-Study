@@ -5,8 +5,8 @@
 
 A case interview practice tool that guides you through structured
 problem-solving stages modelled after MBB consulting interviews. Includes
-a Streamlit web app, optional AI coaching via Gemini, scoring, and
-progress tracking across sessions.
+a Streamlit web app, optional AI coaching via Gemini, timed mental math
+drills, scoring, and progress tracking across sessions.
 
 **Try it now:** [case-study.streamlit.app](https://case-study.streamlit.app/)
 
@@ -75,6 +75,26 @@ Coaching adapts to three difficulty levels:
 - **Exhibit interpretation** — data exhibits to analyze with headline-first format
 - **Clarifying questions** — practice scoping the problem before structuring
 
+## Mental Math Drills
+
+Case interviews require fast, accurate arithmetic under pressure. The
+Mental Math Drills module builds that speed with timed problem sets across
+five categories:
+
+| Category | Examples |
+|---|---|
+| **Percentages** | What is 12% of 240 million? |
+| **Growth & CAGR** | What CAGR takes 100 to 150 in 3 years? |
+| **Market Sizing Math** | 330M people x 70% adults x $120 avg spend |
+| **Breakeven** | Fixed costs $2M, margin $50/unit — breakeven volume? |
+| **Unit Economics** | Monthly ARPU $45, churn 8% — what is the LTV? |
+
+Each drill is **10 timed problems** (target: 30 seconds each). You get a
+score (0–100) based on accuracy (70%) and speed (30%), with a
+problem-by-problem breakdown showing tips and correct answers. Problems
+scale with your difficulty setting and you can run mixed drills that pull
+from all categories.
+
 ## Scoring & Review
 
 On completion, each session gets:
@@ -135,6 +155,7 @@ Case-Study/
 │   ├── engine.py          # stage flows, time limits, data reveals
 │   ├── session.py         # session persistence
 │   ├── analytics.py       # portfolio analytics and trends
+│   ├── mental_math.py     # timed mental math drill engine
 │   └── validation.py      # input validation
 ├── data/
 │   ├── frameworks.json    # 12 business frameworks
