@@ -11,7 +11,7 @@ from datetime import datetime
 import streamlit as st
 from pathlib import Path
 
-from case_study import cases, coach, validation, analytics
+from case_study import cases, coach, validation, analytics, mental_math
 from case_study.coach import DIFFICULTY_LEVELS, STAGE_HINTS, MBB_PRO_TIPS
 from case_study.session import Session, list_sessions
 from case_study.engine import (
@@ -1461,6 +1461,293 @@ def _clear_submitted(stage_name: str, clear_previous: bool = False):
 
 
 # ---------------------------------------------------------------------------
+# Page: Mental Math Drills
+# ---------------------------------------------------------------------------
+
+
+def _parse_user_number(text: str) -> float | None:
+    """Parse a user-entered number, handling common formats like 28.8M, 5K, $, commas."""
+    if not text:
+        return None
+    s = text.strip().replace(",", "").replace("$", "").replace(" ", "")
+    multiplier = 1
+    s_upper = s.upper()
+    if s_upper.endswith("B"):
+        multiplier = 1_000_000_000
+        s = s[:-1]
+    elif s_upper.endswith("M"):
+        multiplier = 1_000_000
+        s = s[:-1]
+    elif s_upper.endswith("K"):
+        multiplier = 1_000
+        s = s[:-1]
+    elif s_upper.endswith("%"):
+        s = s[:-1]
+    try:
+        return float(s) * multiplier
+    except ValueError:
+        return None
+
+
+def render_mental_math():
+    """Mental math drill page — timed problems across five categories."""
+    st.markdown(
+        '<div class="main-header">'
+        "<h1>Mental Math Drills</h1>"
+        "<p>Build the speed that separates good candidates from great ones</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # State keys
+    if "mm_phase" not in st.session_state:
+        st.session_state.mm_phase = "select"  # select | drill | results
+
+    phase = st.session_state.mm_phase
+
+    # ------------------------------------------------------------------
+    # Phase 1: Category & difficulty selection
+    # ------------------------------------------------------------------
+    if phase == "select":
+        st.markdown("### Choose a drill")
+        st.markdown(
+            "Each drill is **10 timed problems**. Target: **30 seconds each**. "
+            "Accuracy and speed are both scored."
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            cat_options = list(mental_math.DRILL_CATEGORIES.keys()) + ["mixed"]
+            cat_labels = {**mental_math.DRILL_CATEGORIES, "mixed": "Mixed (All Categories)"}
+            selected_cat = st.selectbox(
+                "Category",
+                cat_options,
+                format_func=lambda c: cat_labels[c],
+                key="mm_cat_select",
+            )
+        with col2:
+            difficulty = st.session_state.get("difficulty", "intermediate")
+            st.markdown(f"**Difficulty:** {difficulty.capitalize()}")
+            st.caption("Matches your coaching difficulty setting.")
+
+        # Show category description
+        if selected_cat != "mixed":
+            st.info(mental_math.CATEGORY_DESCRIPTIONS[selected_cat])
+        else:
+            st.info("A random mix of problems from all five categories — just like a real interview.")
+
+        st.markdown("")
+        if st.button("Start Drill", type="primary", use_container_width=True):
+            difficulty = st.session_state.get("difficulty", "intermediate")
+            if selected_cat == "mixed":
+                drills = mental_math.generate_mixed_set(10, difficulty)
+            else:
+                drills = mental_math.generate_drill_set(selected_cat, 10, difficulty)
+            st.session_state.mm_drills = drills
+            st.session_state.mm_index = 0
+            st.session_state.mm_results = []
+            st.session_state.mm_drill_start = time.time()
+            st.session_state.mm_phase = "drill"
+            st.session_state.mm_category = selected_cat
+            st.rerun()
+
+        st.markdown("---")
+        st.markdown("### What gets tested")
+        cats = list(mental_math.DRILL_CATEGORIES.items())
+        row1 = st.columns(3)
+        row2 = st.columns(2)
+        all_cols = row1 + row2
+        for col, (cat_key, cat_name) in zip(all_cols, cats):
+            with col:
+                st.markdown(f"**{cat_name}**")
+                st.caption(mental_math.CATEGORY_DESCRIPTIONS[cat_key])
+
+        if st.button("Back to cases"):
+            st.session_state.page = "selection"
+            st.rerun()
+
+    # ------------------------------------------------------------------
+    # Phase 2: Active drill
+    # ------------------------------------------------------------------
+    elif phase == "drill":
+        drills = st.session_state.mm_drills
+        idx = st.session_state.mm_index
+        results = st.session_state.mm_results
+
+        if idx >= len(drills):
+            # All done — move to results
+            st.session_state.mm_phase = "results"
+            st.rerun()
+            return
+
+        drill = drills[idx]
+        total = len(drills)
+
+        # Progress
+        st.progress((idx) / total, text=f"Problem {idx + 1} of {total}")
+
+        # Category badge
+        cat_name = mental_math.DRILL_CATEGORIES.get(drill.category, drill.category)
+        st.caption(f"Category: {cat_name}")
+
+        # Question
+        st.markdown(f"### {drill.question}")
+
+        # Timer for this problem
+        problem_start = st.session_state.get("mm_problem_start")
+        if problem_start is None:
+            st.session_state.mm_problem_start = time.time()
+            problem_start = st.session_state.mm_problem_start
+
+        # Hint expander
+        if drill.hint:
+            with st.expander("Hint"):
+                st.markdown(drill.hint)
+
+        # Answer input
+        answer_text = st.text_input(
+            "Your answer:",
+            key=f"mm_answer_{idx}",
+            placeholder="e.g. 28.8M, 14.5%, 50000",
+        )
+
+        col_submit, col_skip = st.columns([3, 1])
+        with col_submit:
+            submitted = st.button("Submit", type="primary", use_container_width=True)
+        with col_skip:
+            skipped = st.button("Skip", use_container_width=True)
+
+        if submitted or skipped:
+            elapsed = time.time() - problem_start
+            if skipped:
+                user_val = None
+                correct = False
+            else:
+                user_val = _parse_user_number(answer_text)
+                if user_val is None:
+                    st.error("Could not parse your answer. Use numbers like 28.8M, 14.5, 50000, etc.")
+                    return
+                correct = drill.check(user_val)
+
+            result = mental_math.DrillResult(
+                drill=drill,
+                user_answer=user_val,
+                correct=correct,
+                time_seconds=elapsed,
+            )
+            results.append(result)
+
+            # Show immediate feedback
+            formatted_answer = mental_math.format_answer(drill.answer)
+            if drill.unit and drill.unit != "$":
+                formatted_answer += f" {drill.unit}"
+
+            if correct:
+                st.success(f"Correct! Answer: {formatted_answer} ({elapsed:.1f}s)")
+            elif skipped:
+                st.warning(f"Skipped. Answer: {formatted_answer}")
+            else:
+                user_formatted = mental_math.format_answer(user_val) if user_val is not None else "N/A"
+                st.error(f"Not quite. You said {user_formatted} — answer: {formatted_answer} ({elapsed:.1f}s)")
+
+            # Advance
+            st.session_state.mm_index = idx + 1
+            st.session_state.mm_problem_start = None
+            time.sleep(1.2)
+            st.rerun()
+
+    # ------------------------------------------------------------------
+    # Phase 3: Results
+    # ------------------------------------------------------------------
+    elif phase == "results":
+        results = st.session_state.get("mm_results", [])
+        if not results:
+            st.session_state.mm_phase = "select"
+            st.rerun()
+            return
+
+        # Build session for scoring
+        category = st.session_state.get("mm_category", "mixed")
+        difficulty = st.session_state.get("difficulty", "intermediate")
+        drill_session = mental_math.DrillSession(
+            category=category,
+            difficulty=difficulty,
+            results=results,
+        )
+
+        # Score card
+        score = drill_session.score
+        if score >= 70:
+            score_class = "score-high"
+        elif score >= 40:
+            score_class = "score-mid"
+        else:
+            score_class = "score-low"
+
+        st.markdown(
+            f'<div class="score-card {score_class}">'
+            f'<div class="score-number">{score}</div>'
+            f'<div class="score-label">Mental Math Score</div>'
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+        # Summary metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Correct", f"{drill_session.total_correct}/{drill_session.total_count}")
+        with col2:
+            st.metric("Accuracy", f"{drill_session.accuracy * 100:.0f}%")
+        with col3:
+            st.metric("Avg Time", f"{drill_session.avg_time:.1f}s")
+        with col4:
+            target_label = "On pace" if drill_session.avg_time <= mental_math.TARGET_TIME else "Too slow"
+            st.metric("Speed", target_label)
+
+        st.markdown("---")
+
+        # Problem-by-problem breakdown
+        st.markdown("### Problem Breakdown")
+        for i, r in enumerate(results, 1):
+            formatted_answer = mental_math.format_answer(r.drill.answer)
+            if r.drill.unit and r.drill.unit != "$":
+                formatted_answer += f" {r.drill.unit}"
+
+            if r.correct:
+                icon = "&#9989;"
+                color_class = "stage-result-good"
+            else:
+                icon = "&#10060;"
+                color_class = "stage-result-weak"
+
+            user_str = mental_math.format_answer(r.user_answer) if r.user_answer is not None else "Skipped"
+            time_str = f"{r.time_seconds:.1f}s"
+            speed_icon = "" if r.time_seconds <= mental_math.TARGET_TIME else " (slow)"
+
+            with st.expander(f"{icon} Problem {i}: {r.drill.question[:60]}... — {time_str}{speed_icon}"):
+                st.markdown(f"**Your answer:** {user_str}")
+                st.markdown(f"**Correct answer:** {formatted_answer}")
+                st.markdown(f"**Time:** {time_str}")
+                if r.drill.hint:
+                    st.markdown(f"**Tip:** {r.drill.hint}")
+
+        st.markdown("---")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Try Again", type="primary", use_container_width=True):
+                st.session_state.mm_phase = "select"
+                st.session_state.pop("mm_results", None)
+                st.session_state.pop("mm_drills", None)
+                st.rerun()
+        with col2:
+            if st.button("Back to cases", use_container_width=True):
+                st.session_state.mm_phase = "select"
+                st.session_state.page = "selection"
+                st.rerun()
+
+
+# ---------------------------------------------------------------------------
 # Page: Portfolio Analytics
 # ---------------------------------------------------------------------------
 
@@ -1610,6 +1897,10 @@ def render_sidebar():
             st.session_state.page = "portfolio"
             st.rerun()
 
+        if st.button("Mental Math Drills", use_container_width=True):
+            st.session_state.page = "mental_math"
+            st.rerun()
+
         # Coach & difficulty settings
         st.divider()
         st.subheader("Settings")
@@ -1711,6 +2002,8 @@ def main():
 
     if st.session_state.page == "portfolio":
         render_portfolio()
+    elif st.session_state.page == "mental_math":
+        render_mental_math()
     elif st.session_state.page == "session" and "session" in st.session_state:
         _render_session_chrome()
         # Check if we need to show post-submission feedback before rendering the next stage
