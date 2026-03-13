@@ -8,9 +8,13 @@ problem-solving stages modelled after MBB consulting interviews. Includes
 a Streamlit web app, optional AI coaching via Gemini, scoring, and
 progress tracking across sessions.
 
+**Try it now:** [case-study.streamlit.app](https://case-study.streamlit.app/)
+
 ## Quick Start
 
 ### Web App (recommended)
+
+Use the hosted version at **[case-study.streamlit.app](https://case-study.streamlit.app/)**, or run locally:
 
 ```sh
 git clone https://github.com/violethawk/Case-Study.git
