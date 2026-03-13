@@ -172,6 +172,35 @@ CUSTOM_CSS = """
     margin-top: 0;
 }
 
+/* Score card */
+.score-card {
+    text-align: center;
+    padding: 1.5rem;
+    border-radius: 10px;
+    margin-bottom: 1.5rem;
+}
+.score-card .score-number {
+    font-size: 3.5rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 0.3rem;
+}
+.score-card .score-label {
+    font-size: 1rem;
+    opacity: 0.85;
+}
+.score-high { background: linear-gradient(135deg, #e8f5e9, #c8e6c9); color: #1b5e20; }
+.score-high .score-number { color: #2e7d32; }
+.score-mid { background: linear-gradient(135deg, #fff8e1, #ffecb3); color: #e65100; }
+.score-mid .score-number { color: #f57f17; }
+.score-low { background: linear-gradient(135deg, #ffebee, #ffcdd2); color: #b71c1c; }
+.score-low .score-number { color: #c62828; }
+
+/* Stage result indicators */
+.stage-result-good { color: #2e7d32; }
+.stage-result-ok { color: #f57f17; }
+.stage-result-weak { color: #c62828; }
+
 /* Interviewer reveal card */
 .interviewer-card {
     background: linear-gradient(135deg, #f3e5f5 0%, #e8eaf6 100%);
@@ -499,15 +528,11 @@ def render_case_selection():
         for case in cat_cases:
             diff = case.get("difficulty", "?")
             diff_emoji = {"easy": "🟢", "medium": "🟡", "hard": "🔴"}.get(diff, "⚪")
-            # Truncate prompt to ~70 chars for a compact one-line summary
-            prompt = case.get("prompt", "")
-            summary = prompt[:70] + ("..." if len(prompt) > 70 else "")
-            with st.expander(f"{diff_emoji} **{_display_name(case['id'])}** — {_escape_markdown(summary)}"):
-                _md(case["prompt"])
-                if case.get("context"):
-                    with st.expander("Context preview"):
-                        _render_case_context(case["context"][:400] + ("..." if len(case.get("context", "")) > 400 else ""))
-                if st.button("Start this case", key=f"start_{case['id']}", type="primary"):
+            col_name, col_btn = st.columns([5, 1])
+            with col_name:
+                st.markdown(f"{diff_emoji} **{_display_name(case['id'])}**")
+            with col_btn:
+                if st.button("Start", key=f"start_{case['id']}", type="primary"):
                     category = case.get("category", "strategy")
                     sess = Session.new(case["id"], category=category)
                     st.session_state.session = sess
@@ -515,7 +540,6 @@ def render_case_selection():
                     st.session_state.active_stage = 0
                     st.session_state.page = "session"
                     st.session_state.timer_start = time.time()
-                    # Initialize attempt counters for this category's stages
                     stages = get_stages_for_category(category)
                     for spec in stages:
                         st.session_state[f"attempts_{spec.name}"] = 1
@@ -547,10 +571,69 @@ def render_session_review():
         sess.coach_enabled = st.session_state.get("coach_enabled", False)
         save_session()
 
+    # --- Compute overall score ---
+    total_stages = len(stages)
+    first_attempt_count = 0
+    total_attempts = 0
+    passed_count = 0
+    stage_scores: dict[str, dict] = {}
+
+    for spec in stages:
+        attempts = sess.stage_attempts.get(spec.name, 1) if sess.stage_attempts else 1
+        total_attempts += attempts
+        if attempts == 1:
+            first_attempt_count += 1
+
+        fb_key = f"feedback_history_{spec.name}"
+        fb = st.session_state.get(fb_key)
+        did_pass = fb.passed if fb else True
+        if did_pass:
+            passed_count += 1
+
+        # Per-stage score: start at 100, -15 per extra attempt, -20 if failed
+        stage_score = max(0, 100 - (attempts - 1) * 15 - (0 if did_pass else 20))
+        # Rating: good / ok / weak
+        if stage_score >= 80:
+            rating = "good"
+        elif stage_score >= 50:
+            rating = "ok"
+        else:
+            rating = "weak"
+        stage_scores[spec.name] = {"score": stage_score, "rating": rating, "attempts": attempts, "passed": did_pass}
+
+    # Time bonus/penalty
+    time_target = TOTAL_CASE_TIME_LIMIT.get(sess.category, 1800)
+    actual_time = sess.total_time_seconds or 0
+    time_ratio = actual_time / time_target if time_target else 1
+    if time_ratio <= 1.0:
+        time_modifier = 5  # finished within time
+    elif time_ratio <= 1.3:
+        time_modifier = 0
+    else:
+        time_modifier = -10
+
+    overall_score = int(
+        sum(s["score"] for s in stage_scores.values()) / total_stages
+        + time_modifier
+    )
+    overall_score = max(0, min(100, overall_score))
+
+    # Score tier
+    if overall_score >= 75:
+        score_tier = "score-high"
+        score_verdict = "Strong performance"
+    elif overall_score >= 50:
+        score_tier = "score-mid"
+        score_verdict = "Developing — review the gaps below"
+    else:
+        score_tier = "score-low"
+        score_verdict = "Needs work — focus on the weak stages"
+
+    # --- Render header with score ---
     st.markdown(
         '<div class="main-header">'
         "<h1>Session Complete</h1>"
-        "<p>Review your full case study reasoning below</p>"
+        f"<p>{_display_name(sess.case_id)}</p>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -562,57 +645,74 @@ def render_session_review():
             "In a real interview, managing time is critical."
         )
 
-    # Case info
-    st.markdown(f"**Case:** {_display_name(sess.case_id)}")
-    _md(f"**Prompt:** {case['prompt']}")
-    if sess.total_time_seconds:
-        minutes = int(sess.total_time_seconds // 60)
-        seconds = int(sess.total_time_seconds % 60)
-        st.markdown(f"**Total time:** {minutes}m {seconds}s")
-    elif st.session_state.get("timer_start"):
-        elapsed = _format_elapsed(st.session_state.timer_start)
-        st.markdown(f"**Total time:** {elapsed}")
+    # --- Score card + key metrics ---
+    col_score, col_metrics = st.columns([1, 2])
+    with col_score:
+        st.markdown(
+            f'<div class="score-card {score_tier}">'
+            f'<div class="score-number">{overall_score}</div>'
+            f'<div class="score-label">{score_verdict}</div>'
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    with col_metrics:
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            if actual_time:
+                minutes = int(actual_time // 60)
+                seconds = int(actual_time % 60)
+                st.metric("Total Time", f"{minutes}m {seconds}s")
+            elif st.session_state.get("timer_start"):
+                st.metric("Total Time", _format_elapsed(st.session_state.timer_start))
+        with m2:
+            pct = int(first_attempt_count / total_stages * 100) if total_stages else 0
+            st.metric("First-Try Pass", f"{first_attempt_count}/{total_stages}", delta=f"{pct}%")
+        with m3:
+            avg_attempts = total_attempts / total_stages if total_stages else 0
+            st.metric("Avg Attempts", f"{avg_attempts:.1f}")
 
-    # Time per stage summary
-    if sess.stage_times:
-        with st.expander("Stage timing breakdown"):
-            for spec in stages:
-                elapsed = sess.stage_times.get(spec.name, 0)
-                target = get_stage_time_limit(sess.category, spec.name)
-                e_min, e_sec = divmod(int(elapsed), 60)
-                t_min, t_sec = divmod(target, 60)
-                status = "on pace" if elapsed <= target else ("over" if elapsed <= target * 1.5 else "well over")
-                label = STAGE_DISPLAY_NAMES.get(spec.name, _display_name(spec.name))
-                st.markdown(f"- **{label}:** {e_min}:{e_sec:02d} / {t_min}:{t_sec:02d} target ({status})")
+    # --- Biggest strength & area to improve ---
+    sorted_stages = sorted(stage_scores.items(), key=lambda x: x[1]["score"])
+    weakest = sorted_stages[0]
+    strongest = sorted_stages[-1]
+    weak_label = STAGE_DISPLAY_NAMES.get(weakest[0], _display_name(weakest[0]))
+    strong_label = STAGE_DISPLAY_NAMES.get(strongest[0], _display_name(strongest[0]))
+
+    col_s, col_w = st.columns(2)
+    with col_s:
+        st.success(f"Strongest: **{strong_label}** — passed on attempt {strongest[1]['attempts']}")
+    with col_w:
+        weak_detail = f"took {weakest[1]['attempts']} attempts" if weakest[1]["attempts"] > 1 else "review feedback below"
+        st.warning(f"Focus area: **{weak_label}** — {weak_detail}")
+
     st.markdown("---")
 
-    # Report: each stage
+    # --- Stage-by-stage review (collapsed by default) ---
     for spec in stages:
         val = getattr(sess, spec.name)
         label = _stage_label(spec.name, stages)
+        info = stage_scores[spec.name]
 
-        st.markdown(
-            f'<div class="report-section"><h4>{label}</h4>',
-            unsafe_allow_html=True,
-        )
+        # Color indicator
+        indicator = {"good": "🟢", "ok": "🟡", "weak": "🔴"}[info["rating"]]
+        attempt_note = f" — attempt {info['attempts']}" if info["attempts"] > 1 else ""
+        expander_label = f"{indicator} {label}{attempt_note}"
 
-        if isinstance(val, list):
-            for j, item in enumerate(val, 1):
-                _md(f"{j}. {item}")
-        else:
-            _md(val if val else "_No response_")
+        with st.expander(expander_label):
+            if isinstance(val, list):
+                for j, item in enumerate(val, 1):
+                    _md(f"{j}. {item}")
+            else:
+                _md(val if val else "_No response_")
 
-        # Show any stored coach feedback for this stage
-        feedback_history_key = f"feedback_history_{spec.name}"
-        if feedback_history_key in st.session_state:
-            fb = st.session_state[feedback_history_key]
-            st.markdown("**Interviewer Feedback:**")
-            _render_feedback_display(fb)
+            # Show any stored coach feedback for this stage
+            feedback_history_key = f"feedback_history_{spec.name}"
+            if feedback_history_key in st.session_state:
+                fb = st.session_state[feedback_history_key]
+                _render_feedback_display(fb)
 
-        # Show any data reveal for this stage
-        _render_data_reveal(spec.name)
-
-        st.markdown("</div>", unsafe_allow_html=True)
+            # Show any data reveal for this stage
+            _render_data_reveal(spec.name)
 
     st.markdown("---")
 
