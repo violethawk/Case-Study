@@ -3,6 +3,10 @@ from case_study.coach import (
     CoachFeedback,
     is_ai_enabled,
     _check_heuristic_rules,
+    generate_probe_question,
+    answer_clarifying_questions,
+    generate_data_reveal,
+    _heuristic_data_reveal,
 )
 
 
@@ -148,3 +152,88 @@ def test_check_heuristic_rules_returns_reasons():
     passed, reasons = _check_heuristic_rules("restatement", ["Short."])
     assert passed is False
     assert len(reasons) > 0
+
+
+# ---------------------------------------------------------------------------
+# Clarifying questions
+# ---------------------------------------------------------------------------
+
+def test_heuristic_clarifying_questions_passes():
+    fb = provide_feedback("clarifying_questions", [
+        "What is the timeline for this strategic decision?",
+        "Are there any budget constraints we should be aware of?",
+    ])
+    assert fb.passed is True
+
+
+def test_heuristic_clarifying_questions_fails_one_item():
+    fb = provide_feedback("clarifying_questions", [
+        "What is the scope?",
+    ])
+    assert fb.passed is False
+
+
+# ---------------------------------------------------------------------------
+# Exhibit interpretation
+# ---------------------------------------------------------------------------
+
+def test_heuristic_exhibit_interpretation_passes():
+    fb = provide_feedback(
+        "exhibit_interpretation",
+        "The key insight from this data is that the premium segment shows 3x faster growth than mass market, which suggests the client should focus investment on premium.",
+    )
+    assert fb.passed is True
+
+
+def test_heuristic_exhibit_interpretation_fails_too_short():
+    fb = provide_feedback("exhibit_interpretation", "Revenue is growing.")
+    assert fb.passed is False
+
+
+# ---------------------------------------------------------------------------
+# Probe questions
+# ---------------------------------------------------------------------------
+
+def test_generate_probe_question_heuristic():
+    """Heuristic probes should return a string at intermediate+."""
+    probe = generate_probe_question("frame", "I'll look at costs and revenue.", difficulty="intermediate")
+    assert probe is not None
+    assert len(probe) > 10
+
+
+def test_generate_probe_question_beginner_returns_none():
+    probe = generate_probe_question("frame", "anything", difficulty="beginner")
+    assert probe is None
+
+
+# ---------------------------------------------------------------------------
+# Clarifying question answers
+# ---------------------------------------------------------------------------
+
+def test_answer_clarifying_questions_heuristic():
+    answers = answer_clarifying_questions(["What is the budget?", "Who decides?"])
+    assert len(answers) == 2
+    assert all(isinstance(a, str) for a in answers)
+
+
+# ---------------------------------------------------------------------------
+# Mandatory data reveals
+# ---------------------------------------------------------------------------
+
+def test_heuristic_data_reveal_returns_reveal():
+    reveal = _heuristic_data_reveal("frame")
+    assert reveal is not None
+    assert reveal.reveal
+    assert reveal.reveal_type in ("data", "constraint", "curveball")
+
+
+def test_mandatory_reveal_intermediate_frame():
+    """At intermediate difficulty, frame is a mandatory reveal stage."""
+    reveal = generate_data_reveal("frame", "Some framing response", difficulty="intermediate")
+    assert reveal is not None
+    assert reveal.reveal
+
+
+def test_no_reveal_beginner():
+    reveal = generate_data_reveal("frame", "Some framing response", difficulty="beginner")
+    assert reveal is None

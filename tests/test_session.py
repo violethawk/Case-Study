@@ -53,6 +53,7 @@ def test_new_session_defaults_are_empty():
     session = Session.new("test")
     assert session.category == "strategy"
     assert session.restatement is None
+    assert session.clarifying_questions == []
     assert session.framework is None
     assert session.frame is None
     assert session.assumptions == []
@@ -67,12 +68,16 @@ def test_new_session_defaults_are_empty():
     assert session.calculation == []
     assert session.sanity_check is None
     assert session.sensitivity is None
+    assert session.exhibit_interpretation is None
+    assert session.probe_responses == {}
     assert session.stage_times == {}
     assert session.total_time_seconds == 0.0
     assert session.completed_at is None
     assert session.stage_attempts == {}
     assert session.difficulty is None
     assert session.coach_enabled is False
+    assert session.time_expired is False
+    assert session.forced_conclusion is False
 
 
 def test_load_missing_file_raises():
@@ -89,14 +94,19 @@ def test_load_backwards_compatible(tmp_path):
     assert sess.case_id == "old"
     assert sess.frame == "f"
     assert sess.restatement is None
+    assert sess.clarifying_questions == []
     assert sess.framework is None
     assert sess.assumptions == []
     assert sess.additional_insights is None
     assert sess.category == "strategy"
     assert sess.structure is None
     assert sess.calculation == []
+    assert sess.exhibit_interpretation is None
+    assert sess.probe_responses == {}
     assert sess.stage_times == {}
     assert sess.completed_at is None
+    assert sess.time_expired is False
+    assert sess.forced_conclusion is False
 
 
 def test_session_timestamp_is_local():

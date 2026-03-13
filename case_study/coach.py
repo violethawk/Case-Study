@@ -103,6 +103,18 @@ STAGE_CRITERIA: dict[str, str] = {
         "(2) show how varying those assumptions changes the output, (3) discuss the range of "
         "plausible outcomes. Ignoring key drivers or only testing one variable = not passed."
     ),
+    "clarifying_questions": (
+        "The user must: (1) ask at least 2 relevant clarifying questions, "
+        "(2) questions should target scope, constraints, or ambiguity in the problem, "
+        "(3) questions should demonstrate they've read the prompt carefully. "
+        "Generic or irrelevant questions = not passed."
+    ),
+    "exhibit_interpretation": (
+        "The user must: (1) lead with a clear headline insight ('so what'), "
+        "(2) support the headline with specific data points from the exhibit, "
+        "(3) connect the insight to the case question. "
+        "Describing the exhibit without a takeaway = not passed."
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -309,6 +321,7 @@ def generate_data_reveal(
     content: Iterable[str] | str,
     case_context: str = "",
     difficulty: str = "advanced",
+    case_data: dict | None = None,
 ) -> DataReveal | None:
     """Generate an interviewer data reveal after the given stage.
 
@@ -318,13 +331,20 @@ def generate_data_reveal(
     """
     if stage not in DATA_REVEAL_STAGES:
         return None
-    if not _GEMINI_API_KEY:
-        return None
     # Beginner: no curveballs
     if difficulty == "beginner":
         return None
-    # Intermediate: only reveal after calculation (the most impactful stage)
-    if difficulty == "intermediate" and stage != "calculation":
+
+    # Mandatory reveal stages per difficulty
+    mandatory_stages_int = {"frame", "calculation"}
+    mandatory_stages_adv = {"frame", "hypotheses", "calculation"}
+    is_mandatory = (
+        (difficulty == "intermediate" and stage in mandatory_stages_int)
+        or (difficulty == "advanced" and stage in mandatory_stages_adv)
+    )
+
+    # Non-mandatory intermediate stages: skip
+    if difficulty == "intermediate" and not is_mandatory:
         return None
 
     if isinstance(content, str):
@@ -332,10 +352,34 @@ def generate_data_reveal(
     else:
         texts = list(content)
 
-    try:
-        return _gemini_data_reveal(stage, texts, case_context)
-    except Exception:
-        return None
+    # Try case-embedded reveals first
+    if case_data:
+        case_reveals = case_data.get("reveals", {})
+        if stage in case_reveals:
+            r = case_reveals[stage]
+            return DataReveal(
+                reveal=r.get("reveal", r) if isinstance(r, dict) else r,
+                reveal_type=r.get("type", "data") if isinstance(r, dict) else "data",
+            )
+
+    if _GEMINI_API_KEY:
+        try:
+            # At advanced, instruct Gemini to contradict hypothesis
+            extra = ""
+            if difficulty == "advanced":
+                extra = (
+                    " IMPORTANT: The reveal MUST contradict or complicate the "
+                    "candidate's working hypothesis or assumptions. Force them to adapt."
+                )
+            return _gemini_data_reveal(stage, texts, case_context, extra)
+        except Exception:
+            pass
+
+    # Heuristic fallback for mandatory reveals
+    if is_mandatory:
+        return _heuristic_data_reveal(stage)
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +438,9 @@ def _gemini_feedback(
     )
 
 
-def _gemini_data_reveal(stage: str, texts: list[str], case_context: str) -> DataReveal:
+def _gemini_data_reveal(
+    stage: str, texts: list[str], case_context: str, extra: str = "",
+) -> DataReveal:
     """Call Gemini to generate an interviewer data reveal."""
     from google import genai
 
@@ -406,7 +452,7 @@ def _gemini_data_reveal(stage: str, texts: list[str], case_context: str) -> Data
         f"{DATA_REVEAL_PROMPT}\n\n"
         f"Case context:\n{case_context}\n\n"
         f"Stage just completed: {stage}\n"
-        f"Reveal guidance: {reveal_guidance}\n\n"
+        f"Reveal guidance: {reveal_guidance}{extra}\n\n"
         f"Candidate's response:\n{user_input}\n\n"
         "Generate a brief, specific data reveal as JSON."
     )
@@ -422,6 +468,229 @@ def _gemini_data_reveal(stage: str, texts: list[str], case_context: str) -> Data
         reveal=data.get("reveal", ""),
         reveal_type=data.get("type", "data"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Heuristic data reveals (fallback when no API key)
+# ---------------------------------------------------------------------------
+
+_HEURISTIC_REVEALS: dict[str, DataReveal] = {
+    "frame": DataReveal(
+        reveal=(
+            "Let me share some additional context: the competitive landscape has "
+            "shifted significantly in the last 18 months. Two new entrants have "
+            "captured roughly 12% market share combined. How does this affect "
+            "your analysis?"
+        ),
+        reveal_type="data",
+    ),
+    "hypotheses": DataReveal(
+        reveal=(
+            "Interesting hypotheses. I should mention — our internal data shows "
+            "that the factor you've identified as primary actually only accounts "
+            "for about 15% of the variance. What else might be driving this?"
+        ),
+        reveal_type="curveball",
+    ),
+    "assumptions": DataReveal(
+        reveal=(
+            "One thing to consider: a recent industry report suggests that one "
+            "of your key assumptions may be off by 30-40%. How would that change "
+            "your approach?"
+        ),
+        reveal_type="constraint",
+    ),
+    "calculation": DataReveal(
+        reveal=(
+            "Good progress on the numbers. However, I just received updated "
+            "figures: the actual cost base is about 20% higher than what you've "
+            "been using. Can you quickly adjust your calculation?"
+        ),
+        reveal_type="data",
+    ),
+    "structure": DataReveal(
+        reveal=(
+            "Before you proceed — there's a significant geographic skew in this "
+            "market. The top 3 metro areas account for 60% of total demand. "
+            "Does that change how you'd structure your estimation?"
+        ),
+        reveal_type="data",
+    ),
+    "setup": DataReveal(
+        reveal=(
+            "One additional constraint: the client has a hard capital expenditure "
+            "ceiling that may limit some of the options you're considering. "
+            "Factor that into your setup."
+        ),
+        reveal_type="constraint",
+    ),
+    "equation": DataReveal(
+        reveal=(
+            "Good equation. But there's a non-obvious cost component you may be "
+            "missing — regulatory compliance costs have been rising 25% year-over-year "
+            "in this industry. How would you incorporate that?"
+        ),
+        reveal_type="data",
+    ),
+}
+
+
+def _heuristic_data_reveal(stage: str) -> DataReveal:
+    """Return a pre-built data reveal for mandatory stages without API."""
+    return _HEURISTIC_REVEALS.get(
+        stage,
+        DataReveal(
+            reveal="The interviewer shares additional data that may affect your analysis.",
+            reveal_type="data",
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Clarifying question answers
+# ---------------------------------------------------------------------------
+
+_CLARIFYING_ANSWER_PROMPT = """\
+You are a case interviewer. The candidate has asked clarifying questions about the case.
+Answer each question briefly and helpfully, staying consistent with the case data provided.
+Keep answers to 1-2 sentences each. If the case data doesn't cover the question, say
+"That's a good question — for this case, assume [reasonable default]."
+
+Respond with ONLY valid JSON in this exact format (no markdown fences):
+{"answers": ["answer 1", "answer 2", ...]}
+"""
+
+
+def answer_clarifying_questions(
+    questions: list[str],
+    case_context: str = "",
+) -> list[str]:
+    """Answer the candidate's clarifying questions as the interviewer.
+
+    Uses Gemini when available, otherwise returns generic responses.
+    """
+    if not questions:
+        return []
+
+    if _GEMINI_API_KEY:
+        try:
+            return _gemini_answer_questions(questions, case_context)
+        except Exception:
+            pass
+
+    # Heuristic fallback
+    return [
+        "Good question. Based on the information provided, you can proceed "
+        "with reasonable assumptions on that point."
+        for _ in questions
+    ]
+
+
+def _gemini_answer_questions(questions: list[str], case_context: str) -> list[str]:
+    """Call Gemini to answer clarifying questions."""
+    from google import genai
+
+    client = genai.Client(api_key=_GEMINI_API_KEY)
+    q_text = "\n".join(f"{i+1}. {q}" for i, q in enumerate(questions))
+    prompt = (
+        f"{_CLARIFYING_ANSWER_PROMPT}\n\n"
+        f"Case context:\n{case_context}\n\n"
+        f"Candidate's questions:\n{q_text}\n\n"
+        "Answer each question as JSON."
+    )
+    response = client.models.generate_content(
+        model="gemini-3.1-flash-lite-preview",
+        contents=prompt,
+    )
+    raw = _strip_markdown_fences(response.text.strip())
+    data = json.loads(raw)
+    return data.get("answers", [])
+
+
+# ---------------------------------------------------------------------------
+# Multi-turn probing
+# ---------------------------------------------------------------------------
+
+_PROBE_PROMPT = """\
+You are an MBB case interviewer. The candidate just submitted their response for this stage.
+Ask ONE pointed follow-up question that tests depth of understanding. Examples:
+- "Walk me through why you chose that specific driver."
+- "What happens to your recommendation if that assumption is off by 50%?"
+- "Can you quantify that? Give me a rough number."
+
+The question should be specific to their response, not generic.
+
+Respond with ONLY valid JSON (no markdown fences):
+{"probe": "your follow-up question"}
+"""
+
+# Pre-built probe questions for heuristic fallback
+_HEURISTIC_PROBES: dict[str, str] = {
+    "restatement": "What's the single most important piece of information you'd want from the interviewer before proceeding?",
+    "framework": "Why this framework over the alternatives? What would you miss if you used a different one?",
+    "frame": "Which of your buckets do you think will be the most important, and why?",
+    "assumptions": "Which of your assumptions would most change your answer if it were wrong?",
+    "hypotheses": "If your primary hypothesis is ruled out in the first 2 minutes of analysis, where do you pivot?",
+    "equation": "What happens to your recommendation if the key variable in your equation doubles?",
+    "calculation": "Walk me through the step where you're least confident in your numbers.",
+    "conclusion": "What's the biggest risk to your recommendation, and how would you mitigate it?",
+    "additional_insights": "If you had 5 more minutes with the CEO, what's the one thing you'd investigate?",
+    "structure": "What segment of your decomposition carries the most uncertainty?",
+    "setup": "Before you calculate, what result would make you rethink your entire approach?",
+    "sanity_check": "If your estimate is off by 2x, which assumption is most likely the culprit?",
+    "sensitivity": "Which variable would you recommend the client monitor most closely post-decision?",
+    "exhibit_interpretation": "How does this insight change what you'd prioritize in the rest of the case?",
+    "clarifying_questions": "Is there anything about the scope of this problem that still feels ambiguous?",
+}
+
+
+def generate_probe_question(
+    stage: str,
+    content: Iterable[str] | str,
+    case_context: str = "",
+    difficulty: str = "advanced",
+) -> str | None:
+    """Generate a follow-up probe question after a stage submission.
+
+    Returns None for beginner difficulty (no probing).
+    """
+    if difficulty == "beginner":
+        return None
+
+    if isinstance(content, str):
+        texts = [content]
+    else:
+        texts = list(content)
+
+    if _GEMINI_API_KEY:
+        try:
+            return _gemini_probe(stage, texts, case_context)
+        except Exception:
+            pass
+
+    return _HEURISTIC_PROBES.get(stage)
+
+
+def _gemini_probe(stage: str, texts: list[str], case_context: str) -> str:
+    """Call Gemini to generate a probe question."""
+    from google import genai
+
+    client = genai.Client(api_key=_GEMINI_API_KEY)
+    user_input = "\n".join(texts) if len(texts) > 1 else texts[0]
+    prompt = (
+        f"{_PROBE_PROMPT}\n\n"
+        f"Case context:\n{case_context}\n\n"
+        f"Stage: {stage}\n"
+        f"Candidate's response:\n{user_input}\n\n"
+        "Generate your follow-up probe as JSON."
+    )
+    response = client.models.generate_content(
+        model="gemini-3.1-flash-lite-preview",
+        contents=prompt,
+    )
+    raw = _strip_markdown_fences(response.text.strip())
+    data = json.loads(raw)
+    return data.get("probe", "")
 
 
 # ---------------------------------------------------------------------------
@@ -513,6 +782,16 @@ HEURISTIC_RULES: dict[str, dict] = {
         "patterns": [r"\bstrengthen", r"\bweaken", r"\bconfirm", r"\breject",
                      r"\bsupport", r"\bchang", r"\bupdat", r"\brevis",
                      r"\binvalidat", r"\brevised"],
+    },
+    "clarifying_questions": {
+        "min_items": 2,
+        "min_item_words": 5,
+    },
+    "exhibit_interpretation": {
+        "min_words": 15,
+        "patterns": [r"\bbecause\b", r"\bdriv", r"\bkey\b", r"\binsight",
+                     r"\btakeaway", r"\bimpl", r"\bshow", r"\bsuggest",
+                     r"\bindicate", r"\bconfirm", r"\brule"],
     },
 }
 
@@ -668,6 +947,16 @@ def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
             "Have you tested what happens when key inputs vary by +/- 50%? "
             "Consider which variables are most uncertain and most impactful."
         ),
+        "clarifying_questions": (
+            "Did your questions target the most critical unknowns? Consider asking about "
+            "scope, constraints, timeline, success criteria, and competitive landscape. "
+            "The best clarifying questions narrow the problem space and prevent solving the wrong case."
+        ),
+        "exhibit_interpretation": (
+            "Did you lead with the headline insight, or just describe what the data shows? "
+            "The 'so what' should be your first sentence. Then support it with specific "
+            "data points and connect it to the case question."
+        ),
     }
     key_aliases = {"analyze": "analyses", "update": "updates", "conclude": "conclusion"}
     resolved_key = key_aliases.get(stage_key, stage_key)
@@ -740,6 +1029,14 @@ def _heuristic_feedback(stage: str, texts: list[str]) -> CoachFeedback:
         "sensitivity": (
             "If the most uncertain assumption is off by 2x, does your conclusion change? "
             "Which variable would you want to research first to narrow the range?"
+        ),
+        "clarifying_questions": (
+            "Are there any constraints or scope boundaries you haven't asked about? "
+            "What would change your entire approach if the answer were different than expected?"
+        ),
+        "exhibit_interpretation": (
+            "What second-order insight does this data suggest? "
+            "How does this change your prioritization for the rest of the case?"
         ),
     }
     questions = questions_map.get(
@@ -849,6 +1146,20 @@ STAGE_HINTS: dict[str, dict[str, str]] = {
         "mbb_context": "This stage separates 'good' from 'partner-track' candidates. MBB interviewers want to see that you can zoom out from the immediate problem and think about second-order effects, competitive dynamics, and implementation realities. The elite move: identify the one thing that could kill the deal that nobody asked about.",
         "example_standard": "The company should also think about risks and opportunities.",
         "example_elite": "Three things the board should consider beyond our core recommendation: (1) Competitive response — if we launch digital, expect incumbent banks to respond within 6 months. We need a 'fast follower' defense plan. (2) Regulatory risk — digital banking regulations are tightening in 3 states; we should build compliance into the MVP, not bolt it on later. (3) Adjacent opportunity — our digital platform could serve as a distribution channel for insurance products, potentially adding $2-3M in year-2 revenue that isn't in our base case.",
+    },
+    "clarifying_questions": {
+        "hint": "Ask 2-3 questions that target scope, constraints, or ambiguity. Good questions: 'What's the timeline for this decision?' 'Are there budget constraints?' 'Who are the key competitors?'",
+        "structure": "Strong clarifying questions target:\n- **Scope:** What exactly are we optimizing for?\n- **Constraints:** Budget, timeline, regulatory limits?\n- **Context:** Market dynamics, competitive landscape?\n- **Success criteria:** How will the client measure success?",
+        "mbb_context": "Every real MBB case starts with 2-3 clarifying questions. This is your first chance to show structured thinking. Interviewers EXPECT you to ask — jumping straight to a framework without clarifying signals inexperience. The best candidates ask questions that narrow the problem space and prevent solving the wrong case.",
+        "example_standard": "Can you tell me more about the company? What industry are they in?",
+        "example_elite": "Before I structure my approach, I'd like to clarify three things: (1) What's the decision timeline — is this a board-level decision for next quarter, or a longer-term strategic review? (2) Are there hard constraints on capital expenditure, or is the budget flexible if the ROI case is strong? (3) When you say 'growth,' are we optimizing for revenue growth, profit growth, or market share? These have very different strategic implications.",
+    },
+    "exhibit_interpretation": {
+        "hint": "Lead with the 'so what' — not 'this chart shows margins by region.' Instead: 'Region B is subsidizing losses in Region A.' Support with 1-2 specific data points.",
+        "structure": "Use this format:\n- **Headline:** [one-sentence takeaway]\n- **Key data points:** [2-3 specific numbers that support it]\n- **Implication for the case:** [how this changes your analysis]",
+        "mbb_context": "Visual Literacy is a core MBB skill. Interviewers hand you an exhibit and watch HOW you read it. Average candidates describe what they see ('this shows revenue by segment'). Elite candidates lead with the insight ('Segment B is growing 3x faster than A, which means our growth story is actually a concentration risk'). The first sentence should always be the takeaway.",
+        "example_standard": "This table shows revenue and growth by segment. The mass market has the most revenue.",
+        "example_elite": "The key insight is that HNW customers are growing at 8% vs 1% for mass market — despite being the smallest segment. This tells me the growth opportunity is in HNW, not mass market. If we're allocating resources proportionally to current revenue, we're under-investing in our fastest-growing segment. I'd want to shift the analysis toward HNW economics and capacity.",
     },
 }
 

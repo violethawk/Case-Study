@@ -54,6 +54,27 @@ _restatement = StageSpec(
     ),
 )
 
+_clarifying_questions = StageSpec(
+    name="clarifying_questions",
+    prompt="",
+    multi=True,
+    item_name="Clarifying Question",
+    preamble=(
+        "What clarifying questions would you ask the interviewer before structuring?",
+        "Good clarifying questions show you understand the problem and prevent solving the wrong case.",
+    ),
+)
+
+_exhibit_interpretation = StageSpec(
+    name="exhibit_interpretation",
+    prompt="What is the key headline takeaway from this exhibit? Lead with the 'so what.'\n> ",
+    preamble=(
+        "The interviewer has shared a data exhibit.",
+        "State the headline insight — what does this data tell us?",
+        "Lead with the conclusion, then support with 1-2 data points.",
+    ),
+)
+
 _framework = StageSpec(
     name="framework",
     prompt="Which framework will you use for this problem?\n> ",
@@ -182,17 +203,17 @@ _sensitivity = StageSpec(
 # ---- Category-specific stage sequences ------------------------------------
 
 STRATEGY_STAGES: tuple[StageSpec, ...] = (
-    _restatement, _framework, _frame, _assumptions, _hypotheses,
-    _equation, _calculation, _conclusion, _additional_insights,
+    _restatement, _clarifying_questions, _framework, _frame, _assumptions,
+    _hypotheses, _equation, _calculation, _conclusion, _additional_insights,
 )
 
 MARKET_SIZING_STAGES: tuple[StageSpec, ...] = (
-    _restatement, _framework, _structure, _assumptions,
-    _calculation, _sanity_check, _conclusion,
+    _restatement, _clarifying_questions, _framework, _structure,
+    _assumptions, _calculation, _sanity_check, _conclusion,
 )
 
 QUANTITATIVE_STAGES: tuple[StageSpec, ...] = (
-    _restatement, _setup, _assumptions,
+    _restatement, _clarifying_questions, _setup, _assumptions,
     _calculation, _sensitivity, _conclusion,
 )
 
@@ -217,39 +238,81 @@ def get_stages_for_category(category: str) -> tuple[StageSpec, ...]:
     return STAGES_BY_CATEGORY.get(category, STRATEGY_STAGES)
 
 
+def get_stages_with_exhibit(
+    category: str, case_data: dict[str, Any] | None = None,
+) -> tuple[StageSpec, ...]:
+    """Return stages with exhibit_interpretation inserted if case has an exhibit.
+
+    If the case data includes an ``exhibit`` key with an ``appears_after``
+    field, the exhibit interpretation stage is inserted right after that stage.
+    """
+    stages = list(get_stages_for_category(category))
+    if not case_data or "exhibit" not in case_data:
+        return tuple(stages)
+    exhibit = case_data["exhibit"]
+    after_stage = exhibit.get("appears_after", "frame")
+    for i, s in enumerate(stages):
+        if s.name == after_stage:
+            stages.insert(i + 1, _exhibit_interpretation)
+            break
+    return tuple(stages)
+
+
+def check_time_expired(sess: Session, difficulty: str = "advanced") -> bool:
+    """Return True if total elapsed time exceeds the case limit at advanced difficulty."""
+    if difficulty != "advanced":
+        return False
+    total_elapsed = sum(sess.stage_times.values())
+    limit = TOTAL_CASE_TIME_LIMIT.get(sess.category, 1500)
+    return total_elapsed > limit
+
+
 # ---------------------------------------------------------------------------
 # Stage time targets (seconds) for a 25-minute case interview
 # ---------------------------------------------------------------------------
 
 STAGE_TIME_LIMITS: dict[str, dict[str, int]] = {
     "strategy": {
-        "restatement": 120,   # 2 min
-        "framework": 120,     # 2 min
-        "frame": 180,         # 3 min
-        "assumptions": 120,   # 2 min
-        "hypotheses": 180,    # 3 min
-        "equation": 180,      # 3 min
-        "calculation": 240,   # 4 min
-        "conclusion": 240,    # 4 min
-        "additional_insights": 120,  # 2 min
+        "restatement": 120,           # 2 min
+        "clarifying_questions": 90,   # 1.5 min
+        "framework": 120,             # 2 min
+        "frame": 150,                 # 2.5 min
+        "assumptions": 120,           # 2 min
+        "hypotheses": 180,            # 3 min
+        "equation": 150,              # 2.5 min
+        "calculation": 240,           # 4 min
+        "conclusion": 210,            # 3.5 min
+        "additional_insights": 120,   # 2 min
+        "exhibit_interpretation": 90, # 1.5 min
     },
     "market-sizing": {
-        "restatement": 120,   # 2 min
-        "framework": 120,     # 2 min
-        "structure": 180,     # 3 min
-        "assumptions": 180,   # 3 min
-        "calculation": 420,   # 7 min
-        "sanity_check": 300,  # 5 min
-        "conclusion": 180,    # 3 min
+        "restatement": 120,           # 2 min
+        "clarifying_questions": 90,   # 1.5 min
+        "framework": 120,             # 2 min
+        "structure": 150,             # 2.5 min
+        "assumptions": 150,           # 2.5 min
+        "calculation": 420,           # 7 min
+        "sanity_check": 240,          # 4 min
+        "conclusion": 150,            # 2.5 min
+        "exhibit_interpretation": 90, # 1.5 min
     },
     "quantitative": {
-        "restatement": 120,   # 2 min
-        "setup": 240,         # 4 min
-        "assumptions": 180,   # 3 min
-        "calculation": 420,   # 7 min
-        "sensitivity": 300,   # 5 min
-        "conclusion": 240,    # 4 min
+        "restatement": 120,           # 2 min
+        "clarifying_questions": 90,   # 1.5 min
+        "setup": 210,                 # 3.5 min
+        "assumptions": 150,           # 2.5 min
+        "calculation": 420,           # 7 min
+        "sensitivity": 270,           # 4.5 min
+        "conclusion": 210,            # 3.5 min
+        "exhibit_interpretation": 90, # 1.5 min
     },
+}
+
+# Total case time limit (seconds) — used for hard time pressure at advanced
+TOTAL_CASE_TIME_LIMIT: dict[str, int] = {
+    "strategy": 1500,       # 25 min
+    "market-sizing": 1500,  # 25 min
+    "quantitative": 1500,   # 25 min
 }
 
 
@@ -442,7 +505,7 @@ def _run_stage(
         print(f"\n{warning}")
 
     # Mid-case data reveal
-    reveal = coach.generate_data_reveal(spec.name, value, case_context, difficulty)
+    reveal = coach.generate_data_reveal(spec.name, value, case_context, difficulty, case_data=None)
     if reveal and reveal.reveal:
         print(f"\n--- INTERVIEWER ({reveal.reveal_type.upper()}) ---")
         print(reveal.reveal)
@@ -454,9 +517,10 @@ def run_session(
     coach_enabled: bool,
     case_context: str = "",
     difficulty: str = "advanced",
+    case_data: dict[str, Any] | None = None,
 ) -> None:
     """Interactively run through the remaining stages of the session."""
-    stages = get_stages_for_category(sess.category)
+    stages = get_stages_with_exhibit(sess.category, case_data)
 
     # Find the first incomplete stage
     start_index: int | None = None
@@ -469,9 +533,51 @@ def run_session(
         print("This session is already complete.")
         return
 
-    for spec in stages[start_index:]:
+    # Find conclusion stage index for time-expired skip
+    conclusion_idx = next(
+        (i for i, s in enumerate(stages) if s.name == "conclusion"), len(stages) - 1
+    )
+
+    for i, spec in enumerate(stages[start_index:], start=start_index):
+        # Hard time pressure at advanced: skip to conclusion
+        if check_time_expired(sess, difficulty) and spec.name != "conclusion":
+            if i < conclusion_idx:
+                print(f"\nTIME'S UP — In a real interview, you'd need to wrap up now.")
+                print("Skipping to conclusion.\n")
+                sess.time_expired = True
+                sess.forced_conclusion = True
+                # Skip to conclusion
+                for skip_spec in stages[i:conclusion_idx]:
+                    if not _is_stage_complete(getattr(sess, skip_spec.name)):
+                        setattr(sess, skip_spec.name, "[Time expired — skipped]" if not skip_spec.multi else ["[Time expired — skipped]"])
+                sess.save()
+                # Run conclusion
+                print("\n" + "CONCLUSION")
+                _run_stage(stages[conclusion_idx], sess, coach_enabled, case_context, difficulty)
+                break
+
         print("\n" + spec.name.upper().replace("_", " "))
+
+        # Show exhibit data before the exhibit interpretation stage
+        if spec.name == "exhibit_interpretation" and case_data and "exhibit" in case_data:
+            exhibit = case_data["exhibit"]
+            print(f"\n--- EXHIBIT: {exhibit.get('title', 'Data')} ---")
+            print(exhibit.get("data", ""))
+            print("---\n")
+
         _run_stage(spec, sess, coach_enabled, case_context, difficulty)
+
+        # After clarifying questions, reveal interviewer answers
+        if spec.name == "clarifying_questions" and sess.clarifying_questions:
+            answers = coach.answer_clarifying_questions(
+                sess.clarifying_questions, case_context
+            )
+            if answers:
+                print("\n--- INTERVIEWER ANSWERS ---")
+                for q, a in zip(sess.clarifying_questions, answers):
+                    print(f"  Q: {q}")
+                    print(f"  A: {a}\n")
+                print("---\n")
 
     print("\nSession complete. Your reasoning has been saved.")
 
@@ -509,7 +615,7 @@ def start_session(coach_flag: bool | None) -> None:
     if context:
         print("Context:", context)
     case_context = selected_case["prompt"] + ("\n\n" + context if context else "")
-    run_session(sess, coach_enabled, case_context)
+    run_session(sess, coach_enabled, case_context, case_data=selected_case)
 
 
 def resume_session(session_file: str, coach_flag: bool | None) -> None:

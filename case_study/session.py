@@ -28,6 +28,7 @@ class Session:
     timestamp: str
     category: str = "strategy"
     restatement: str | None = None
+    clarifying_questions: list[str] = field(default_factory=list)
     framework: str | None = None
     frame: str | None = None
     assumptions: list[str] = field(default_factory=list)
@@ -42,6 +43,9 @@ class Session:
     calculation: list[str] = field(default_factory=list)
     sanity_check: str | None = None
     sensitivity: str | None = None
+    exhibit_interpretation: str | None = None
+    # Probe responses from multi-turn coaching
+    probe_responses: dict[str, str] = field(default_factory=dict)
     # Analytics fields
     stage_times: dict[str, float] = field(default_factory=dict)
     total_time_seconds: float = 0.0
@@ -49,6 +53,8 @@ class Session:
     stage_attempts: dict[str, int] = field(default_factory=dict)
     difficulty: str | None = None
     coach_enabled: bool = False
+    time_expired: bool = False
+    forced_conclusion: bool = False
 
     @classmethod
     def new(cls, case_id: str, category: str = "strategy") -> "Session":
@@ -82,6 +88,7 @@ class Session:
             timestamp=data.get("timestamp"),
             category=data.get("category", "strategy"),
             restatement=data.get("restatement"),
+            clarifying_questions=data.get("clarifying_questions", []),
             framework=data.get("framework"),
             frame=data.get("frame"),
             assumptions=data.get("assumptions", []),
@@ -96,12 +103,16 @@ class Session:
             calculation=data.get("calculation", []),
             sanity_check=data.get("sanity_check"),
             sensitivity=data.get("sensitivity"),
+            exhibit_interpretation=data.get("exhibit_interpretation"),
+            probe_responses=data.get("probe_responses", {}),
             stage_times=data.get("stage_times", {}),
             total_time_seconds=data.get("total_time_seconds", 0.0),
             completed_at=data.get("completed_at"),
             stage_attempts=data.get("stage_attempts", {}),
             difficulty=data.get("difficulty"),
             coach_enabled=data.get("coach_enabled", False),
+            time_expired=data.get("time_expired", False),
+            forced_conclusion=data.get("forced_conclusion", False),
         )
 
 

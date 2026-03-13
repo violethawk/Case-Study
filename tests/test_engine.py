@@ -7,6 +7,7 @@ from case_study.engine import (
     STAGE_NAMES,
     STAGES_BY_CATEGORY,
     STAGE_TIME_LIMITS,
+    TOTAL_CASE_TIME_LIMIT,
     STRATEGY_STAGES,
     MARKET_SIZING_STAGES,
     QUANTITATIVE_STAGES,
@@ -14,8 +15,10 @@ from case_study.engine import (
     _MULTI_FIELDS,
     _is_stage_complete,
     get_stages_for_category,
+    get_stages_with_exhibit,
     get_stage_time_limit,
     format_time_warning,
+    check_time_expired,
     run_session,
     print_session,
     _clear_stage,
@@ -53,21 +56,22 @@ def test_multi_stages_have_item_name():
 
 
 def test_strategy_stages_count():
-    assert len(STRATEGY_STAGES) == 9
+    assert len(STRATEGY_STAGES) == 10
 
 
 def test_market_sizing_stages_count():
-    assert len(MARKET_SIZING_STAGES) == 7
+    assert len(MARKET_SIZING_STAGES) == 8
 
 
 def test_quantitative_stages_count():
-    assert len(QUANTITATIVE_STAGES) == 6
+    assert len(QUANTITATIVE_STAGES) == 7
 
 
 def test_strategy_stage_names():
     names = tuple(s.name for s in STRATEGY_STAGES)
     assert names == (
-        "restatement", "framework", "frame", "assumptions", "hypotheses",
+        "restatement", "clarifying_questions", "framework", "frame",
+        "assumptions", "hypotheses",
         "equation", "calculation", "conclusion", "additional_insights",
     )
 
@@ -75,15 +79,15 @@ def test_strategy_stage_names():
 def test_market_sizing_stage_names():
     names = tuple(s.name for s in MARKET_SIZING_STAGES)
     assert names == (
-        "restatement", "framework", "structure", "assumptions",
-        "calculation", "sanity_check", "conclusion",
+        "restatement", "clarifying_questions", "framework", "structure",
+        "assumptions", "calculation", "sanity_check", "conclusion",
     )
 
 
 def test_quantitative_stage_names():
     names = tuple(s.name for s in QUANTITATIVE_STAGES)
     assert names == (
-        "restatement", "setup", "assumptions",
+        "restatement", "clarifying_questions", "setup", "assumptions",
         "calculation", "sensitivity", "conclusion",
     )
 
@@ -230,7 +234,8 @@ def test_print_session_market_sizing(capsys):
 def test_run_session_already_complete(capsys):
     sess = Session(
         case_id="x", timestamp="t",
-        restatement="r", framework="Profitability", frame="f",
+        restatement="r", clarifying_questions=["q1", "q2"],
+        framework="Profitability", frame="f",
         assumptions=["a"], hypotheses=["h1"],
         equation="Revenue = P * Q", calculation=["step1"],
         conclusion="c", additional_insights="ai",
@@ -243,7 +248,8 @@ def test_run_session_single_stage(monkeypatch, tmp_path, capsys):
     """Run a session that only needs the last stage (additional_insights)."""
     sess = Session(
         case_id="x", timestamp="t",
-        restatement="r", framework="Profitability", frame="f",
+        restatement="r", clarifying_questions=["q1", "q2"],
+        framework="Profitability", frame="f",
         assumptions=["a"], hypotheses=["h1"],
         equation="Revenue = P * Q", calculation=["step1"],
         conclusion="c",
@@ -262,7 +268,8 @@ def test_run_session_multi_stage(monkeypatch, tmp_path, capsys):
     """Run a session that needs hypotheses stage onward."""
     sess = Session(
         case_id="x", timestamp="t",
-        restatement="r", framework="Profitability", frame="f",
+        restatement="r", clarifying_questions=["q1", "q2"],
+        framework="Profitability", frame="f",
         assumptions=["a"],
     )
     monkeypatch.setattr(sess, "save", lambda directory=tmp_path: None)
@@ -288,27 +295,30 @@ def test_run_session_multi_stage(monkeypatch, tmp_path, capsys):
 
 
 def test_run_session_market_sizing(monkeypatch, tmp_path, capsys):
-    """Run a market-sizing session through all 7 stages."""
+    """Run a market-sizing session through all 8 stages."""
     sess = Session(case_id="x", timestamp="t", category="market-sizing")
     monkeypatch.setattr(sess, "save", lambda directory=tmp_path: None)
 
     inputs = iter([
-        "Estimate number of coffee shops in the US",  # restatement
-        "n",                                            # no frameworks
-        "Supply and Demand framework for market sizing", # framework
-        "Top-down from population",                    # structure
-        "US population 330M",                          # assumption 1
-        "n",                                            # no more assumptions
-        "330M / 300 = 1.1M",                           # calculation step 1
-        "n",                                            # no more steps
-        "1.1M seems high, Starbucks has 16K alone",   # sanity check
-        "About 200K coffee shops in the US",           # conclusion
+        "Estimate number of coffee shops in the US",       # restatement
+        "What is the geographic scope of this estimate",   # clarifying q 1
+        "n",                                                # no more questions
+        "n",                                                # no frameworks
+        "Supply and Demand framework for market sizing",   # framework
+        "Top-down from population",                        # structure
+        "US population 330M",                              # assumption 1
+        "n",                                                # no more assumptions
+        "330M / 300 = 1.1M",                               # calculation step 1
+        "n",                                                # no more steps
+        "1.1M seems high, Starbucks has 16K alone",       # sanity check
+        "About 200K coffee shops in the US",               # conclusion
     ])
     monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
 
     run_session(sess, coach_enabled=False)
 
     assert sess.restatement == "Estimate number of coffee shops in the US"
+    assert sess.clarifying_questions == ["What is the geographic scope of this estimate"]
     assert sess.framework == "Supply and Demand framework for market sizing"
     assert sess.structure == "Top-down from population"
     assert sess.calculation == ["330M / 300 = 1.1M"]
@@ -318,24 +328,27 @@ def test_run_session_market_sizing(monkeypatch, tmp_path, capsys):
 
 
 def test_run_session_quantitative(monkeypatch, tmp_path, capsys):
-    """Run a quantitative session through all 6 stages."""
+    """Run a quantitative session through all 7 stages."""
     sess = Session(case_id="x", timestamp="t", category="quantitative")
     monkeypatch.setattr(sess, "save", lambda directory=tmp_path: None)
 
     inputs = iter([
-        "Calculate break-even price for the new product",  # restatement
-        "Break-even = Fixed Costs / (Price - Variable Cost)",  # setup
-        "Fixed costs are $500K per year",                   # assumption 1
-        "n",                                                 # no more assumptions
-        "500K / (P - 20) = 10K units, so P = $70",         # calculation step 1
-        "n",                                                 # no more steps
-        "If variable cost rises 25%, price needs to be $75", # sensitivity
-        "Set price at $70 with $5 buffer for cost increases", # conclusion
+        "Calculate break-even price for the new product",       # restatement
+        "What is the target production volume for year one",    # clarifying q 1
+        "n",                                                     # no more questions
+        "Break-even = Fixed Costs / (Price - Variable Cost)",   # setup
+        "Fixed costs are $500K per year",                       # assumption 1
+        "n",                                                     # no more assumptions
+        "500K / (P - 20) = 10K units, so P = $70",             # calculation step 1
+        "n",                                                     # no more steps
+        "If variable cost rises 25%, price needs to be $75",   # sensitivity
+        "Set price at $70 with $5 buffer for cost increases",  # conclusion
     ])
     monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
 
     run_session(sess, coach_enabled=False)
 
+    assert sess.clarifying_questions == ["What is the target production volume for year one"]
     assert sess.setup == "Break-even = Fixed Costs / (Price - Variable Cost)"
     assert sess.sensitivity == "If variable cost rises 25%, price needs to be $75"
     assert "Session complete" in capsys.readouterr().out
@@ -345,7 +358,8 @@ def test_run_session_with_coach(monkeypatch, tmp_path, capsys):
     """Coach feedback is printed when enabled and user opts in."""
     sess = Session(
         case_id="x", timestamp="t",
-        restatement="r", framework="Profitability", frame="f",
+        restatement="r", clarifying_questions=["q1", "q2"],
+        framework="Profitability", frame="f",
         assumptions=["a"], hypotheses=["h1"],
         equation="Revenue = P * Q", calculation=["step1"],
         conclusion="c",
@@ -392,3 +406,52 @@ def test_format_time_warning_well_over_target():
     warning = format_time_warning(300, 120)
     assert warning is not None
     assert "WARNING" in warning
+
+
+# ---------------------------------------------------------------------------
+# Exhibit insertion
+# ---------------------------------------------------------------------------
+
+def test_get_stages_with_exhibit_no_exhibit():
+    """Without exhibit data, stages should be unchanged."""
+    stages = get_stages_with_exhibit("strategy", None)
+    assert stages == STRATEGY_STAGES
+
+
+def test_get_stages_with_exhibit():
+    """With an exhibit, the exhibit_interpretation stage is inserted."""
+    case_data = {
+        "exhibit": {"title": "Test", "data": "x", "appears_after": "frame"},
+    }
+    stages = get_stages_with_exhibit("strategy", case_data)
+    names = tuple(s.name for s in stages)
+    frame_idx = names.index("frame")
+    assert names[frame_idx + 1] == "exhibit_interpretation"
+    assert len(stages) == len(STRATEGY_STAGES) + 1
+
+
+# ---------------------------------------------------------------------------
+# Time expiry
+# ---------------------------------------------------------------------------
+
+def test_check_time_expired_advanced():
+    sess = Session(case_id="x", timestamp="t")
+    sess.stage_times = {"restatement": 800, "framework": 800}
+    assert check_time_expired(sess, "advanced") is True
+
+
+def test_check_time_expired_not_advanced():
+    sess = Session(case_id="x", timestamp="t")
+    sess.stage_times = {"restatement": 800, "framework": 800}
+    assert check_time_expired(sess, "intermediate") is False
+
+
+def test_check_time_expired_under_limit():
+    sess = Session(case_id="x", timestamp="t")
+    sess.stage_times = {"restatement": 100}
+    assert check_time_expired(sess, "advanced") is False
+
+
+def test_total_case_time_limit_exists():
+    for category in STAGES_BY_CATEGORY:
+        assert category in TOTAL_CASE_TIME_LIMIT
