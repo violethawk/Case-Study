@@ -210,13 +210,27 @@ CUSTOM_CSS = """
 # ---------------------------------------------------------------------------
 
 
+_ACRONYMS = {"ai", "ev", "us", "saas", "roi", "ngo", "reit", "mbb", "jpmorgan"}
+
 def _display_name(raw: str) -> str:
     """Convert an underscore-separated ID into a readable title.
 
+    Handles acronyms (AI, EV, SaaS, etc.) and hyphens in category names.
+
     e.g. 'bank_growth' -> 'Bank Growth'
-         'additional_insights' -> 'Additional Insights'
+         'ai_operations' -> 'AI Operations'
+         'market-sizing' -> 'Market Sizing'
     """
-    return raw.replace("_", " ").title()
+    # Normalize hyphens to spaces
+    cleaned = raw.replace("_", " ").replace("-", " ")
+    words = cleaned.split()
+    result = []
+    for w in words:
+        if w.lower() in _ACRONYMS:
+            result.append(w.upper())
+        else:
+            result.append(w.capitalize())
+    return " ".join(result)
 
 
 def _get_active_stages() -> tuple[StageSpec, ...]:
@@ -266,6 +280,29 @@ def load_all_cases():
     return cases.load_cases()
 
 
+def _format_session_label(stem: str) -> str:
+    """Format a session filename stem into a readable label.
+
+    e.g. 'bank_growth_2026-03-12_22-43-56' -> 'Bank Growth — Mar 12, 2026'
+         'bank_growth_001_2026-03-12_13-38-16' -> 'Bank Growth — Mar 12, 2026'
+    """
+    import re
+    # Try to extract a date from the stem
+    match = re.search(r"(\d{4})-(\d{2})-(\d{2})_\d{2}-\d{2}-\d{2}$", stem)
+    if match:
+        # Everything before the date is the case name
+        date_start = match.start()
+        name_part = stem[:date_start].rstrip("_")
+        # Strip trailing _001 style suffixes
+        name_part = re.sub(r"_\d{3}$", "", name_part)
+        year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        date_str = f"{month_names[month - 1]} {day}, {year}"
+        return f"{_display_name(name_part)} — {date_str}"
+    return _display_name(stem)
+
+
 def _format_elapsed(start_time: float) -> str:
     """Format elapsed seconds as HH:MM:SS."""
     elapsed = int(time.time() - start_time)
@@ -280,7 +317,7 @@ def _escape_markdown(text: str) -> str:
     - ``$`` triggers LaTeX math rendering
     - ``<`` / ``>`` are parsed as HTML tags
     """
-    return text.replace("$", "\\$").replace("<", "&lt;").replace(">", "&gt;")
+    return text.replace("$", "&#36;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _md(text: str, **kwargs):
@@ -404,7 +441,6 @@ def render_case_selection():
         "</div>",
         unsafe_allow_html=True,
     )
-    st.markdown("Select a case to begin your structured reasoning session.")
 
     all_cases = load_all_cases()
 
@@ -427,7 +463,7 @@ def render_case_selection():
             else None
         )
     with col2:
-        diff_display = st.selectbox("Difficulty", ["All"] + [diff_labels[d] for d in difficulties])
+        diff_display = st.selectbox("Case Difficulty", ["All"] + [diff_labels[d] for d in difficulties])
         diff_filter = (
             next((k for k, v in diff_labels.items() if v == diff_display), None)
             if diff_display != "All"
@@ -440,57 +476,51 @@ def render_case_selection():
     if diff_filter:
         filtered = [c for c in filtered if c.get("difficulty") == diff_filter]
 
-    st.toggle("Enable Coach Mode", key="coach_enabled", value=st.session_state.get("coach_enabled", True))
-    if st.session_state.get("coach_enabled") and coach.is_ai_enabled():
-        st.caption("AI coaching active -- you must pass each stage to advance.")
-    elif st.session_state.get("coach_enabled"):
-        st.caption("Heuristic coaching (set GEMINI_API_KEY for AI-powered gating).")
-
-    # Difficulty selector
-    difficulty_labels = {
-        "beginner": "Beginner -- Friendly coach with hints and structure guides",
-        "intermediate": "Intermediate -- Balanced feedback with occasional curveballs",
-        "advanced": "Advanced -- MBB interviewer simulation with full rigor",
-    }
-    current_diff = st.session_state.get("difficulty", "intermediate")
-    selected_diff = st.radio(
-        "Difficulty",
-        options=list(DIFFICULTY_LEVELS),
-        index=list(DIFFICULTY_LEVELS).index(current_diff),
-        format_func=lambda d: difficulty_labels[d],
-        key="difficulty_radio",
-    )
-    st.session_state.difficulty = selected_diff
-
     if not filtered:
         st.info("No cases match the selected filters.")
         return
 
+    is_filtered = cat_filter is not None or diff_filter is not None
+    if is_filtered:
+        st.caption(f"Showing {len(filtered)} of {len(all_cases)} cases")
+
+    # Group cases by category
+    from collections import OrderedDict
+    grouped: dict[str, list] = OrderedDict()
     for case in filtered:
-        diff = case.get("difficulty", "?")
-        diff_emoji = {"easy": "🟢", "medium": "🟡", "hard": "🔴"}.get(diff, "⚪")
-        with st.expander(f"{diff_emoji} **{_display_name(case['id'])}** -- {_escape_markdown(case['prompt'][:80])}..."):
-            st.markdown(
-                f"**Category:** {_display_name(case.get('category', 'N/A'))}  |  **Difficulty:** {diff.capitalize()}"
-            )
-            _md(f"**Prompt:** {case['prompt']}")
-            if case.get("context"):
-                st.markdown("**Context preview:**")
-                _render_case_context(case["context"][:300] + ("..." if len(case.get("context", "")) > 300 else ""))
-            if st.button("Start this case", key=f"start_{case['id']}"):
-                category = case.get("category", "strategy")
-                sess = Session.new(case["id"], category=category)
-                st.session_state.session = sess
-                st.session_state.selected_case = case
-                st.session_state.active_stage = 0
-                st.session_state.page = "session"
-                st.session_state.timer_start = time.time()
-                # Initialize attempt counters for this category's stages
-                stages = get_stages_for_category(category)
-                for spec in stages:
-                    st.session_state[f"attempts_{spec.name}"] = 1
-                save_session()
-                st.rerun()
+        cat = case.get("category", "unknown")
+        grouped.setdefault(cat, []).append(case)
+
+    _CAT_ICONS = {"strategy": "♟️", "market-sizing": "📐", "quantitative": "📊"}
+
+    for cat, cat_cases in grouped.items():
+        cat_icon = _CAT_ICONS.get(cat, "📁")
+        st.subheader(f"{cat_icon} {_display_name(cat)} ({len(cat_cases)})")
+        for case in cat_cases:
+            diff = case.get("difficulty", "?")
+            diff_emoji = {"easy": "🟢", "medium": "🟡", "hard": "🔴"}.get(diff, "⚪")
+            # Truncate prompt to ~70 chars for a compact one-line summary
+            prompt = case.get("prompt", "")
+            summary = prompt[:70] + ("..." if len(prompt) > 70 else "")
+            with st.expander(f"{diff_emoji} **{_display_name(case['id'])}** — {_escape_markdown(summary)}"):
+                _md(case["prompt"])
+                if case.get("context"):
+                    with st.expander("Context preview"):
+                        _render_case_context(case["context"][:400] + ("..." if len(case.get("context", "")) > 400 else ""))
+                if st.button("Start this case", key=f"start_{case['id']}", type="primary"):
+                    category = case.get("category", "strategy")
+                    sess = Session.new(case["id"], category=category)
+                    st.session_state.session = sess
+                    st.session_state.selected_case = case
+                    st.session_state.active_stage = 0
+                    st.session_state.page = "session"
+                    st.session_state.timer_start = time.time()
+                    # Initialize attempt counters for this category's stages
+                    stages = get_stages_for_category(category)
+                    for spec in stages:
+                        st.session_state[f"attempts_{spec.name}"] = 1
+                    save_session()
+                    st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -641,7 +671,12 @@ def render_session_review():
 # ---------------------------------------------------------------------------
 
 
-def render_session():
+def _render_session_chrome():
+    """Render the session header, prompt, progress bar, and stage stepper.
+
+    Always called so users have full context regardless of whether
+    coach feedback is being shown.
+    """
     sess = st.session_state.session
     case = st.session_state.selected_case
     stages = _get_active_stages()
@@ -662,6 +697,37 @@ def render_session():
     # Progress
     total = len(stages)
     st.progress(stage_idx / total, text=f"Progress: {stage_idx}/{total} stages complete")
+
+    # Stage stepper breadcrumb
+    stepper_parts = []
+    for i, s in enumerate(stages):
+        name = STAGE_DISPLAY_NAMES.get(s.name, _display_name(s.name))
+        if i < stage_idx:
+            stepper_parts.append(f'<span style="color:#2e7d32;font-weight:600;">{i+1}. {name}</span>')
+        elif i == stage_idx:
+            stepper_parts.append(
+                f'<span style="background:#1a237e;color:white;padding:2px 8px;border-radius:10px;'
+                f'font-weight:700;">{i+1}. {name}</span>'
+            )
+        else:
+            stepper_parts.append(f'<span style="color:#9e9e9e;">{i+1}. {name}</span>')
+    st.markdown(
+        '<div style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:0.82rem;'
+        'line-height:1.8;">'
+        + " ".join(stepper_parts)
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+    st.divider()
+
+
+def render_session():
+    sess = st.session_state.session
+    case = st.session_state.selected_case
+    stages = _get_active_stages()
+    stage_idx = current_stage_index()
+
+    total = len(stages)
 
     # Show completed stages (most recent one expanded)
     for i in range(stage_idx):
@@ -737,13 +803,14 @@ def render_session():
 
     # Stage header with attempt badge
     attempt_count = st.session_state.get(f"attempts_{stage_name}", 1)
-    label = _stage_label(stage_name, stages)
-    st.markdown(f"### {label}")
+    display = STAGE_DISPLAY_NAMES.get(stage_name, _display_name(stage_name))
     if attempt_count > 1:
         st.markdown(
-            f'<span class="attempt-badge">Attempt {attempt_count}</span>',
+            f'### {display} <span class="attempt-badge">Attempt {attempt_count}</span>',
             unsafe_allow_html=True,
         )
+    else:
+        st.markdown(f"### {display}")
     st.markdown(STAGE_DESCRIPTIONS.get(stage_name, ""))
 
     # Framework selection for frame/structure stages
@@ -829,38 +896,35 @@ def _render_stage_hints(stage_name: str):
         return
 
     if difficulty == "beginner":
-        # Beginner: everything expanded for maximum learning
-        with st.expander("Hint", expanded=True):
+        # Beginner: single collapsed expander to avoid wall of text
+        with st.expander("Help me get started"):
             st.info(hints["hint"])
-        with st.expander("Suggested structure", expanded=True):
+            st.markdown("**Suggested structure:**")
             st.markdown(hints["structure"])
-        # Always show MBB context for beginners
-        if hints.get("mbb_context"):
-            with st.expander("Why this stage matters in MBB interviews", expanded=True):
-                st.markdown(f"**MBB Context:** {hints['mbb_context']}")
-        # Show worked examples for beginners
-        if hints.get("example_standard") and hints.get("example_elite"):
-            with st.expander("See examples: Standard vs Elite", expanded=True):
+            if hints.get("mbb_context"):
+                st.markdown("---")
+                st.markdown(f"**Why this stage matters in MBB interviews:** {hints['mbb_context']}")
+            if hints.get("example_standard") and hints.get("example_elite"):
+                st.markdown("---")
                 st.markdown("**Standard response** (adequate but won't stand out):")
                 st.markdown(f"> {_escape_markdown(hints['example_standard'])}")
                 st.markdown("**Elite response** (what top candidates do):")
                 st.markdown(f"> {_escape_markdown(hints['example_elite'])}")
 
     elif difficulty == "intermediate":
-        # Intermediate: hints collapsed, MBB context on demand, examples available
+        # Intermediate: single collapsed expander, pro tip as standalone nudge
         with st.expander("Need a hint?"):
             st.info(hints["hint"])
             st.markdown(hints["structure"])
-        if hints.get("mbb_context"):
-            with st.expander("Why does this matter?"):
+            if hints.get("mbb_context"):
+                st.markdown("---")
                 st.markdown(f"**MBB Context:** {hints['mbb_context']}")
-        if hints.get("example_standard") and hints.get("example_elite"):
-            with st.expander("Compare: Standard vs Elite response"):
+            if hints.get("example_standard") and hints.get("example_elite"):
+                st.markdown("---")
                 st.markdown("**Standard:**")
                 st.markdown(f"> {_escape_markdown(hints['example_standard'])}")
                 st.markdown("**Elite:**")
                 st.markdown(f"> {_escape_markdown(hints['example_elite'])}")
-        # Show MBB Pro Tips at intermediate level
         pro_tip = MBB_PRO_TIPS.get(stage_name)
         if pro_tip:
             st.info(pro_tip)
@@ -879,7 +943,7 @@ def _render_single_input(stage_name: str, stage_idx: int):
     _render_stage_hints(stage_name)
     text_key = f"input_{stage_name}"
     response = st.text_area(
-        f"Your {STAGE_DISPLAY_NAMES.get(stage_name, _display_name(stage_name))}:",
+        "Your response:",
         key=text_key,
         height=200,
         placeholder="Type your response here...",
@@ -1026,6 +1090,116 @@ def _render_data_reveal(stage_name: str):
         )
 
 
+def _handle_revise(spec):
+    """Render revise button and handle stage reset on click."""
+    if st.button("Revise this stage", key=f"revise_{spec.name}"):
+        attempts_key = f"attempts_{spec.name}"
+        st.session_state[attempts_key] = st.session_state.get(attempts_key, 1) + 1
+        prev_key = f"previous_response_{spec.name}"
+        content = st.session_state.get(f"content_{spec.name}")
+        if content:
+            st.session_state[prev_key] = content
+        sess = st.session_state.session
+        if spec.multi:
+            setattr(sess, spec.name, [])
+        else:
+            setattr(sess, spec.name, None)
+        sess.save()
+        _clear_submitted(spec.name)
+        st.rerun()
+
+
+def _handle_probe(spec, case_context: str, difficulty: str) -> bool:
+    """Render multi-turn probe question. Returns True if blocking on probe input."""
+    if difficulty == "beginner":
+        return False
+    probe_key = f"probe_{spec.name}"
+    probe_done_key = f"probe_done_{spec.name}"
+    if st.session_state.get(probe_done_key):
+        return False
+    if probe_key not in st.session_state:
+        content = st.session_state.get(f"content_{spec.name}", "")
+        probe_q = coach.generate_probe_question(spec.name, content, case_context, difficulty)
+        if probe_q:
+            st.session_state[probe_key] = probe_q
+    if probe_key not in st.session_state:
+        return False
+    st.markdown("---")
+    st.markdown(
+        f'<div class="interviewer-card">'
+        f'<div class="interviewer-label">Interviewer Follow-Up</div>'
+        f'{_escape_markdown(st.session_state[probe_key])}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    probe_response = st.text_area(
+        "Your response:",
+        key=f"probe_input_{spec.name}",
+        height=100,
+        placeholder="Answer the follow-up question...",
+    )
+    if st.button("Submit follow-up", key=f"probe_submit_{spec.name}"):
+        if probe_response and probe_response.strip():
+            st.session_state.session.probe_responses[spec.name] = probe_response
+            st.session_state[probe_done_key] = True
+            save_session()
+            st.rerun()
+        else:
+            st.error("Please provide a response to the follow-up question.")
+    return True
+
+
+def _handle_clarifying_answers(spec, case_context: str):
+    """Render interviewer answers to clarifying questions."""
+    if spec.name != "clarifying_questions":
+        return
+    answers_key = f"clarifying_answers_{spec.name}"
+    if answers_key not in st.session_state:
+        content = st.session_state.get(f"content_{spec.name}", [])
+        if content:
+            answers = coach.answer_clarifying_questions(
+                content if isinstance(content, list) else [content],
+                case_context,
+            )
+            st.session_state[answers_key] = answers
+    answers = st.session_state.get(answers_key, [])
+    if not answers:
+        return
+    content = st.session_state.get(f"content_{spec.name}", [])
+    questions = content if isinstance(content, list) else [content]
+    st.markdown("---")
+    st.markdown(
+        '<div class="interviewer-card">'
+        '<div class="interviewer-label">Interviewer Answers</div>',
+        unsafe_allow_html=True,
+    )
+    for q, a in zip(questions, answers):
+        st.markdown(f"**Q:** {_escape_markdown(q)}")
+        st.markdown(f"**A:** {_escape_markdown(a)}")
+        st.markdown("")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def _handle_data_reveal(spec, case_context: str, difficulty: str, show_spinner: bool = False):
+    """Generate and render data reveal for a stage."""
+    reveal_key = f"data_reveal_{spec.name}"
+    if reveal_key not in st.session_state:
+        content = st.session_state.get(f"content_{spec.name}", "")
+        case_data = st.session_state.get("selected_case")
+        if show_spinner:
+            with st.spinner("Interviewer is preparing new information..."):
+                reveal = coach.generate_data_reveal(
+                    spec.name, content, case_context, difficulty, case_data=case_data,
+                )
+        else:
+            reveal = coach.generate_data_reveal(
+                spec.name, content, case_context, difficulty, case_data=case_data,
+            )
+        if reveal and reveal.reveal:
+            st.session_state[reveal_key] = reveal
+    _render_data_reveal(spec.name)
+
+
 def render_coach_feedback():
     """Check if any stage was just submitted and handle coach evaluation.
 
@@ -1047,14 +1221,41 @@ def render_coach_feedback():
         feedback_key = f"feedback_{spec.name}"
         coach_enabled = st.session_state.get("coach_enabled", False)
 
-        # --- AI gating mode: auto-evaluate on submit ---
-        if ai_gating:
+        # Show previously completed stages (collapsed)
+        sess = st.session_state.session
+        for i, s in enumerate(stages):
+            if s.name == spec.name:
+                break
+            val = getattr(sess, s.name)
+            if val is not None and val != "" and val != []:
+                with st.expander(f"{_stage_label(s.name, stages)} (completed)"):
+                    if isinstance(val, list):
+                        for j, item in enumerate(val, 1):
+                            _md(f"{j}. {item}")
+                    else:
+                        _md(val)
+
+        # Show stage header and user's response for context
+        display = STAGE_DISPLAY_NAMES.get(spec.name, _display_name(spec.name))
+        st.markdown(f"### {display}")
+        content = st.session_state.get(f"content_{spec.name}")
+        if content:
+            with st.expander("Your response", expanded=True):
+                if isinstance(content, list):
+                    for j, item in enumerate(content, 1):
+                        _md(f"{j}. {item}")
+                else:
+                    _md(content)
+
+        # --- Evaluate feedback (shared for both paths) ---
+        if ai_gating or coach_enabled:
             if feedback_key not in st.session_state:
-                content = st.session_state[f"content_{spec.name}"]
                 with st.spinner("Interviewer is evaluating your response..."):
                     fb = coach.provide_feedback(spec.name, content, case_context, difficulty)
                 st.session_state[feedback_key] = fb
 
+        # --- AI gating mode ---
+        if ai_gating:
             fb = st.session_state[feedback_key]
             _render_feedback_display(fb)
 
@@ -1065,80 +1266,10 @@ def render_coach_feedback():
                 )
                 _render_time_warning(spec.name)
                 st.session_state[f"feedback_history_{spec.name}"] = fb
-
-                # Multi-turn probe (intermediate/advanced only)
-                probe_key = f"probe_{spec.name}"
-                probe_done_key = f"probe_done_{spec.name}"
-                if difficulty != "beginner" and not st.session_state.get(probe_done_key):
-                    if probe_key not in st.session_state:
-                        content = st.session_state.get(f"content_{spec.name}", "")
-                        probe_q = coach.generate_probe_question(spec.name, content, case_context, difficulty)
-                        if probe_q:
-                            st.session_state[probe_key] = probe_q
-                    if probe_key in st.session_state:
-                        st.markdown("---")
-                        st.markdown(
-                            f'<div class="interviewer-card">'
-                            f'<div class="interviewer-label">Interviewer Follow-Up</div>'
-                            f'{_escape_markdown(st.session_state[probe_key])}'
-                            f'</div>',
-                            unsafe_allow_html=True,
-                        )
-                        probe_response = st.text_area(
-                            "Your response:",
-                            key=f"probe_input_{spec.name}",
-                            height=100,
-                            placeholder="Answer the follow-up question...",
-                        )
-                        if st.button("Submit follow-up", key=f"probe_submit_{spec.name}"):
-                            if probe_response and probe_response.strip():
-                                st.session_state.session.probe_responses[spec.name] = probe_response
-                                st.session_state[probe_done_key] = True
-                                save_session()
-                                st.rerun()
-                            else:
-                                st.error("Please provide a response to the follow-up question.")
-                        return True
-
-                # Clarifying question answers
-                if spec.name == "clarifying_questions":
-                    answers_key = f"clarifying_answers_{spec.name}"
-                    if answers_key not in st.session_state:
-                        content = st.session_state.get(f"content_{spec.name}", [])
-                        if content:
-                            answers = coach.answer_clarifying_questions(
-                                content if isinstance(content, list) else [content],
-                                case_context,
-                            )
-                            st.session_state[answers_key] = answers
-                    answers = st.session_state.get(answers_key, [])
-                    if answers:
-                        content = st.session_state.get(f"content_{spec.name}", [])
-                        questions = content if isinstance(content, list) else [content]
-                        st.markdown("---")
-                        st.markdown(
-                            '<div class="interviewer-card">'
-                            '<div class="interviewer-label">Interviewer Answers</div>',
-                            unsafe_allow_html=True,
-                        )
-                        for q, a in zip(questions, answers):
-                            st.markdown(f"**Q:** {_escape_markdown(q)}")
-                            st.markdown(f"**A:** {_escape_markdown(a)}")
-                            st.markdown("")
-                        st.markdown("</div>", unsafe_allow_html=True)
-
-                # Generate data reveal if applicable
-                reveal_key = f"data_reveal_{spec.name}"
-                if reveal_key not in st.session_state:
-                    content = st.session_state.get(f"content_{spec.name}", "")
-                    case_data = st.session_state.get("selected_case")
-                    with st.spinner("Interviewer is preparing new information..."):
-                        reveal = coach.generate_data_reveal(
-                            spec.name, content, case_context, difficulty, case_data=case_data,
-                        )
-                    if reveal and reveal.reveal:
-                        st.session_state[reveal_key] = reveal
-                _render_data_reveal(spec.name)
+                if _handle_probe(spec, case_context, difficulty):
+                    return True
+                _handle_clarifying_answers(spec, case_context)
+                _handle_data_reveal(spec, case_context, difficulty, show_spinner=True)
                 if st.button("Continue to next stage", key=f"continue_{spec.name}"):
                     _clear_submitted(spec.name, clear_previous=True)
                     st.rerun()
@@ -1147,135 +1278,29 @@ def render_coach_feedback():
                     '<div class="feedback-fail">Not yet -- revise your response and resubmit.</div>',
                     unsafe_allow_html=True,
                 )
-                if st.button("Revise this stage", key=f"revise_{spec.name}"):
-                    # Increment attempt counter
-                    attempts_key = f"attempts_{spec.name}"
-                    st.session_state[attempts_key] = st.session_state.get(attempts_key, 1) + 1
-                    # Save previous response for reference before clearing
-                    prev_key = f"previous_response_{spec.name}"
-                    content = st.session_state.get(f"content_{spec.name}")
-                    if content:
-                        st.session_state[prev_key] = content
-                    # Clear the stage value so the user can redo it
-                    sess = st.session_state.session
-                    if spec.multi:
-                        setattr(sess, spec.name, [])
-                    else:
-                        setattr(sess, spec.name, None)
-                    sess.save()
-                    _clear_submitted(spec.name)
-                    st.rerun()
+                _handle_revise(spec)
             return True
 
         # --- Optional coach mode (heuristic or no API key) ---
-        display = STAGE_DISPLAY_NAMES.get(spec.name, _display_name(spec.name))
-        st.success(f"Stage '{display}' saved.")
+        st.success("Stage saved.")
         _render_time_warning(spec.name)
-        if coach_enabled:
-            if feedback_key not in st.session_state:
-                content = st.session_state[f"content_{spec.name}"]
-                fb = coach.provide_feedback(spec.name, content, case_context, difficulty)
-                st.session_state[feedback_key] = fb
 
-            if feedback_key in st.session_state:
-                fb = st.session_state[feedback_key]
-                _render_feedback_display(fb)
-                st.session_state[f"feedback_history_{spec.name}"] = fb
-
-                if not fb.passed:
-                    st.markdown(
-                        '<div class="feedback-fail">Not yet -- revise your response and resubmit.</div>',
-                        unsafe_allow_html=True,
-                    )
-                    if st.button("Revise this stage", key=f"revise_{spec.name}"):
-                        attempts_key = f"attempts_{spec.name}"
-                        st.session_state[attempts_key] = st.session_state.get(attempts_key, 1) + 1
-                        prev_key = f"previous_response_{spec.name}"
-                        content = st.session_state.get(f"content_{spec.name}")
-                        if content:
-                            st.session_state[prev_key] = content
-                        sess = st.session_state.session
-                        if spec.multi:
-                            setattr(sess, spec.name, [])
-                        else:
-                            setattr(sess, spec.name, None)
-                        sess.save()
-                        _clear_submitted(spec.name)
-                        st.rerun()
-                    return True
-
-        # Multi-turn probe (heuristic path, intermediate/advanced)
-        probe_key = f"probe_{spec.name}"
-        probe_done_key = f"probe_done_{spec.name}"
-        if difficulty != "beginner" and not st.session_state.get(probe_done_key):
-            if probe_key not in st.session_state:
-                content = st.session_state.get(f"content_{spec.name}", "")
-                probe_q = coach.generate_probe_question(spec.name, content, case_context, difficulty)
-                if probe_q:
-                    st.session_state[probe_key] = probe_q
-            if probe_key in st.session_state:
-                st.markdown("---")
+        if coach_enabled and feedback_key in st.session_state:
+            fb = st.session_state[feedback_key]
+            _render_feedback_display(fb)
+            st.session_state[f"feedback_history_{spec.name}"] = fb
+            if not fb.passed:
                 st.markdown(
-                    f'<div class="interviewer-card">'
-                    f'<div class="interviewer-label">Interviewer Follow-Up</div>'
-                    f'{_escape_markdown(st.session_state[probe_key])}'
-                    f'</div>',
+                    '<div class="feedback-fail">Not yet -- revise your response and resubmit.</div>',
                     unsafe_allow_html=True,
                 )
-                probe_response = st.text_area(
-                    "Your response:",
-                    key=f"probe_input_{spec.name}",
-                    height=100,
-                    placeholder="Answer the follow-up question...",
-                )
-                if st.button("Submit follow-up", key=f"probe_submit_{spec.name}"):
-                    if probe_response and probe_response.strip():
-                        st.session_state.session.probe_responses[spec.name] = probe_response
-                        st.session_state[probe_done_key] = True
-                        save_session()
-                        st.rerun()
-                    else:
-                        st.error("Please provide a response to the follow-up question.")
+                _handle_revise(spec)
                 return True
 
-        # Clarifying question answers
-        if spec.name == "clarifying_questions":
-            answers_key = f"clarifying_answers_{spec.name}"
-            if answers_key not in st.session_state:
-                content = st.session_state.get(f"content_{spec.name}", [])
-                if content:
-                    answers = coach.answer_clarifying_questions(
-                        content if isinstance(content, list) else [content],
-                        case_context,
-                    )
-                    st.session_state[answers_key] = answers
-            answers = st.session_state.get(answers_key, [])
-            if answers:
-                content = st.session_state.get(f"content_{spec.name}", [])
-                questions = content if isinstance(content, list) else [content]
-                st.markdown("---")
-                st.markdown(
-                    '<div class="interviewer-card">'
-                    '<div class="interviewer-label">Interviewer Answers</div>',
-                    unsafe_allow_html=True,
-                )
-                for q, a in zip(questions, answers):
-                    st.markdown(f"**Q:** {_escape_markdown(q)}")
-                    st.markdown(f"**A:** {_escape_markdown(a)}")
-                    st.markdown("")
-                st.markdown("</div>", unsafe_allow_html=True)
-
-        # Generate mandatory data reveal
-        reveal_key = f"data_reveal_{spec.name}"
-        if reveal_key not in st.session_state:
-            content = st.session_state.get(f"content_{spec.name}", "")
-            case_data = st.session_state.get("selected_case")
-            reveal = coach.generate_data_reveal(
-                spec.name, content, case_context, difficulty, case_data=case_data,
-            )
-            if reveal and reveal.reveal:
-                st.session_state[reveal_key] = reveal
-        _render_data_reveal(spec.name)
+        if _handle_probe(spec, case_context, difficulty):
+            return True
+        _handle_clarifying_answers(spec, case_context)
+        _handle_data_reveal(spec, case_context, difficulty)
 
         if st.button("Continue to next stage", key=f"continue_{spec.name}"):
             _clear_submitted(spec.name, clear_previous=True)
@@ -1482,6 +1507,35 @@ def render_sidebar():
             st.session_state.page = "portfolio"
             st.rerun()
 
+        # Coach & difficulty settings
+        st.divider()
+        st.subheader("Settings")
+
+        st.toggle(
+            "Enable Coach Mode",
+            key="coach_enabled",
+            help="When enabled, you receive feedback after each stage and must pass before advancing.",
+        )
+        if st.session_state.get("coach_enabled") and coach.is_ai_enabled():
+            st.caption("AI coaching active — you must pass each stage to advance.")
+        elif st.session_state.get("coach_enabled"):
+            st.caption("Heuristic coaching (set GEMINI_API_KEY for AI).")
+
+        difficulty_labels = {
+            "beginner": "Beginner",
+            "intermediate": "Intermediate",
+            "advanced": "Advanced",
+        }
+        current_diff = st.session_state.get("difficulty", "intermediate")
+        selected_diff = st.radio(
+            "Coaching Difficulty",
+            options=list(DIFFICULTY_LEVELS),
+            index=list(DIFFICULTY_LEVELS).index(current_diff),
+            format_func=lambda d: difficulty_labels[d],
+            key="difficulty_radio",
+        )
+        st.session_state.difficulty = selected_diff
+
         st.divider()
         st.subheader("Previous Sessions")
 
@@ -1490,7 +1544,7 @@ def render_sidebar():
             st.caption("No saved sessions yet.")
         else:
             # Use selectbox + load button instead of a long list of buttons
-            session_labels = [_display_name(sf.stem) for sf in session_files[:20]]
+            session_labels = [_format_session_label(sf.stem) for sf in session_files[:20]]
             selected_label = st.selectbox(
                 "Select a session",
                 session_labels,
@@ -1555,6 +1609,7 @@ def main():
     if st.session_state.page == "portfolio":
         render_portfolio()
     elif st.session_state.page == "session" and "session" in st.session_state:
+        _render_session_chrome()
         # Check if we need to show post-submission feedback before rendering the next stage
         if not render_coach_feedback():
             render_session()
