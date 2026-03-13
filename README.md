@@ -3,167 +3,145 @@
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
-Case‑Study is a command‑line application for practising structured
-analytical reasoning.  It guides users through an eight‑stage reasoning
-loop modelled after consulting‑style case interviews:
-
-1. **Restate** – restate the problem in your own words and identify clarifying questions.
-2. **Frame** – define the problem structure and choose a framework (with an optional reference library of 12 common business frameworks).
-3. **Assumptions** – state and justify key assumptions before proceeding.
-4. **Hypothesize** – generate potential explanations or strategic options.
-5. **Analyze** – outline analyses you would perform to test hypotheses.
-6. **Update** – refine or discard hypotheses based on your analysis.
-7. **Conclude** – summarise your recommendation with supporting rationale and risks.
-8. **Additional Insights** – go beyond the case with implementation risks, second‑order effects and adjacent opportunities.
-
-Unlike a chatbot that attempts to answer cases for you, Case‑Study
-provides a structured environment that encourages you to think
-critically, document your reasoning and iterate as new insights
-emerge.  An optional AI coach offers generic feedback on the quality
-of your thought process without giving away answers.
+A case interview practice tool that guides you through structured
+problem-solving stages modelled after MBB consulting interviews. Includes
+a Streamlit web app, optional AI coaching via Gemini, scoring, and
+progress tracking across sessions.
 
 ## Quick Start
 
+### Web App (recommended)
+
 ```sh
 git clone https://github.com/violethawk/Case-Study.git
 cd Case-Study
-python -m case_study start
+pip install streamlit
+streamlit run app.py
 ```
 
-Use `--coach` to enable AI feedback, or omit to be prompted interactively:
+### CLI
 
 ```sh
-python -m case_study start --coach
+python -m case_study start              # start a new session
+python -m case_study start --coach      # with heuristic coaching
+python -m case_study resume <session>   # resume a saved session
+python -m case_study list               # list saved sessions
 ```
 
-Example session flow:
+## What It Does
 
-```text
-$ python -m case_study start
-Available cases:
-  1. bank_growth_001 – A regional bank is considering ...
-  ...
-Select a case by number or ID (or 'q' to cancel): 1
-Would you like to enable coach mode for this session? (y/n) y
+You pick a case, then work through a category-specific stage flow — restating
+the problem, structuring your approach, making assumptions, calculating, and
+delivering a recommendation. The tool evaluates each stage, tracks attempts,
+and scores your session on completion.
 
-RESTATEMENT
-Before diving in, restate the problem in your own words.
-Restate the problem:
-> ...
-```
+**25 cases** across three categories and three difficulty levels:
+
+| Category | Cases | Stages |
+|---|---|---|
+| **Strategy** (10) | Market entry, growth, pricing | Restatement → Clarifying Questions → Framework → Frame → Assumptions → Hypotheses → Equation → Calculation → Conclusion → Additional Insights |
+| **Market Sizing** (8) | TAM estimation, sizing | Restatement → Clarifying Questions → Framework → Structure → Assumptions → Calculation → Sanity Check → Conclusion |
+| **Quantitative** (7) | Break-even, unit economics | Restatement → Clarifying Questions → Setup → Assumptions → Calculation → Sensitivity → Conclusion |
+
+Each case has a difficulty rating (easy / medium / hard) that affects the
+depth expected in your responses.
+
+## Coaching
+
+Two coaching modes are available:
+
+- **Heuristic (default)** — deterministic feedback based on word count,
+  keyword patterns, and structural checks. No API key needed.
+- **AI (Gemini)** — set `GEMINI_API_KEY` to get stage-specific feedback
+  from Gemini Flash. Evaluates your actual reasoning, not just structure.
+
+Coaching adapts to three difficulty levels:
+
+| Level | Style |
+|---|---|
+| **Beginner** | Supportive, hints provided, lenient pass threshold |
+| **Intermediate** | Balanced, honest feedback, fair passing bar |
+| **Advanced** | MBB-style, sharp on errors, rigorous standards |
+
+## Session Features
+
+- **Time pressure** — per-stage and total time limits with warnings
+- **Multi-attempt stages** — retry stages that don't pass the quality bar
+- **Interviewer data reveals** — mid-case data drops that force you to adapt
+- **Exhibit interpretation** — data exhibits to analyze with headline-first format
+- **Clarifying questions** — practice scoping the problem before structuring
+
+## Scoring & Review
+
+On completion, each session gets:
+
+- **Overall score (0–100)** — computed from per-stage attempts, pass/fail
+  rates, and time management
+- **Stage-by-stage breakdown** — green/yellow/red indicators with
+  collapsible detail and feedback
+- **Strongest stage & focus area** — highlights where to improve
+- **Key metrics** — total time, first-try pass rate, average attempts
+
+## Progress Tracking
+
+The analytics system tracks performance across sessions:
+
+- Time trends (getting faster or slower)
+- First-attempt rate changes
+- Per-stage performance history
+- Difficulty progression recommendations
+
+## Frameworks
+
+A reference library of 12 common business frameworks is available during
+the Framework Selection stage: 3C's, 4P's, Cost vs Benefit,
+Fixed vs Variable Costs, Internal vs External, McKinsey 7-S, Porter's
+Five Forces, Profitability, STP, Supply vs Demand, SWOT, and Value Chain.
 
 ## Installation
 
-Case‑Study requires **Python 3.11+** and uses only the standard
-library — no additional dependencies are needed.
+Requires **Python 3.11+**.
 
 ```sh
-git clone https://github.com/violethawk/Case-Study.git
-cd Case-Study
+pip install -e ".[ui]"        # Streamlit web app
+pip install -e ".[ai]"        # Gemini AI coaching
+pip install -e ".[ui,ai]"     # both
+pip install -e ".[dev]"       # pytest for running tests
 ```
 
-## Usage
-
-Invoke the program using the `-m` switch and specify one of the
-subcommands:
+Or install dependencies directly:
 
 ```sh
-python -m case_study start                          # start a new session
-python -m case_study resume <path/to/session.json>  # resume a saved session
-python -m case_study list                            # list saved sessions
+pip install streamlit                  # for the web app
+pip install google-genai               # for AI coaching (optional)
 ```
 
-### Starting a Session
-
-When you start a new session you will be shown the available cases
-from `data/sample_cases.json` and prompted to pick one by number or
-identifier.  The program displays the case prompt and context and then
-walks you through each reasoning stage.  Your responses must contain
-at least ten characters; the tool will ask you to expand very short
-answers.
-
-For stages that involve lists (Assumptions, Hypotheses, Analyses and Updates) you
-enter one item at a time and decide whether to add another.  All
-responses are saved to a JSON file in `sessions/` after each stage to
-prevent data loss.
-
-At the start of a session you can choose whether to enable the AI
-coach.  If enabled you will have the option after each stage to
-receive feedback.  The MVP coach implementation uses simple
-heuristics: it does **not** solve the case or provide answers, but
-critiques the clarity and completeness of your reasoning and suggests
-questions to consider.
-
-### Resuming a Session
-
-To continue working on an unfinished session use the `resume`
-subcommand with the path to the saved JSON file.  The tool will show
-your completed stages and prompt you to:
-
-1. Continue from the next incomplete stage.
-2. Edit the most recent completed stage (which will also clear later stages).
-3. Exit without changes.
-
-If the session is already complete you may review it or duplicate it
-and revise your reasoning.
-
-### Session Persistence
-
-Sessions are stored in `sessions/` with filenames of the form:
-
-```text
-<case_id>_<YYYY-MM-DD>_<HH-MM-SS>.json
-```
-
-Each file contains a JSON object with the fields `case_id`,
-`timestamp`, `restatement`, `frame`, `assumptions`, `hypotheses`,
-`analyses`, `updates`, `conclusion` and `additional_insights`.  You can list existing sessions with `python -m
-case_study list`.
+The CLI works with no extra dependencies — only the standard library.
 
 ## Project Structure
 
 ```text
 Case-Study/
+├── app.py                 # Streamlit web app
 ├── case_study/
-│   ├── __init__.py      # package marker
-│   ├── __main__.py      # entry point (python -m case_study)
-│   ├── cases.py         # case loader
-│   ├── cli.py           # argument parsing and subcommands
-│   ├── coach.py         # AI coach heuristics
-│   ├── engine.py        # reasoning‑loop orchestration
-│   ├── session.py       # session persistence
-│   └── validation.py    # input validation helpers
+│   ├── __main__.py        # CLI entry point
+│   ├── cases.py           # case loader
+│   ├── cli.py             # argument parsing and subcommands
+│   ├── coach.py           # heuristic + Gemini AI coaching
+│   ├── engine.py          # stage flows, time limits, data reveals
+│   ├── session.py         # session persistence
+│   ├── analytics.py       # portfolio analytics and trends
+│   └── validation.py      # input validation
 ├── data/
-│   ├── frameworks.json    # business frameworks reference library
-│   └── sample_cases.json
-├── sessions/            # saved session files (gitignored)
-├── tests/               # test suite
-├── .gitignore
+│   ├── frameworks.json    # 12 business frameworks
+│   └── sample_cases.json  # 25 cases across 3 categories
+├── sessions/              # saved session files (gitignored)
+├── tests/                 # test suite
 ├── pyproject.toml
 ├── LICENSE
 └── README.md
 ```
 
-## Sample Cases
-
-The repository includes a small set of sample cases in
-`data/sample_cases.json`.  Each case entry contains an ID, a prompt,
-optional context and a difficulty rating.  You can add your own cases
-by editing this file or pointing the loader at a different JSON file.
-
-## Extending the MVP
-
-This MVP focuses on clarity, reasoning traceability and simplicity.
-Future directions include:
-
-* A web interface or GUI.
-* More sophisticated AI coaching via API integration.
-* Exporting sessions as formatted reports.
-* Difficulty progression or practice curricula.
-
-Contributions and suggestions are welcome — feel free to open an issue
-or submit a pull request.
-
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+[MIT](LICENSE)

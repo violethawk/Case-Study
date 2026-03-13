@@ -522,8 +522,11 @@ def render_case_selection():
 
     _CAT_ICONS = {"strategy": "♟️", "market-sizing": "📐", "quantitative": "📊"}
 
+    _DIFF_ORDER = {"easy": 0, "medium": 1, "hard": 2}
+
     for cat, cat_cases in grouped.items():
         cat_icon = _CAT_ICONS.get(cat, "📁")
+        cat_cases.sort(key=lambda c: _DIFF_ORDER.get(c.get("difficulty", ""), 99))
         st.subheader(f"{cat_icon} {_display_name(cat)} ({len(cat_cases)})")
         for case in cat_cases:
             diff = case.get("difficulty", "?")
