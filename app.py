@@ -1513,6 +1513,12 @@ def render_equations():
             "freq": "Almost every case",
         },
         {
+            "name": "Total Costs",
+            "formula": "Total Costs = Fixed Costs + (Variable Cost per Unit × Volume)",
+            "detail": "Fixed costs don't change with volume (rent, salaries, depreciation). Variable costs scale with output (materials, commissions, shipping). Always split costs into these two buckets first.",
+            "freq": "Almost every case",
+        },
+        {
             "name": "Market Size (Top-Down)",
             "formula": "Market Size = Population × % Applicable × Adoption Rate × Price",
             "detail": "Start from a large known number and narrow down with successive filters. Classic for market-sizing cases.",
