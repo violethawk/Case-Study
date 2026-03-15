@@ -1600,8 +1600,8 @@ def render_equations():
 
     for i, eq in enumerate(equations):
         with st.expander(f"**{i + 1}. {eq['name']}** — _{eq['freq']}_", expanded=(i < 3)):
-            st.latex(eq["formula"].replace("×", r"\times").replace("÷", r"\div").replace("−", "-"))
-            st.markdown(eq["detail"])
+            st.markdown(f"##### `{eq['formula']}`")
+            st.caption(eq["detail"])
 
     st.info("**Tip:** In an interview, always state the equation *before* plugging in numbers — it shows structured thinking and lets the interviewer course-correct early.")
 
