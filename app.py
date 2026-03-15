@@ -1489,6 +1489,215 @@ def _parse_user_number(text: str) -> float | None:
         return None
 
 
+def render_equations():
+    """Reference page listing common case interview equations by frequency."""
+    st.markdown(
+        '<div class="main-header">'
+        "<h1>Equations Cheat Sheet</h1>"
+        "<p>The formulas that come up most often in case interviews, ranked by frequency</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    equations = [
+        {
+            "name": "Profit",
+            "formula": "Profit = Revenue − Costs",
+            "detail": "Revenue = Price × Quantity. Costs = Fixed Costs + Variable Costs. The single most common equation in casing.",
+            "freq": "Almost every case",
+        },
+        {
+            "name": "Revenue",
+            "formula": "Revenue = Price × Volume",
+            "detail": "Volume can be broken into # of customers × units per customer, or market size × market share.",
+            "freq": "Almost every case",
+        },
+        {
+            "name": "Market Size (Top-Down)",
+            "formula": "Market Size = Population × % Applicable × Adoption Rate × Price",
+            "detail": "Start from a large known number and narrow down with successive filters. Classic for market-sizing cases.",
+            "freq": "Very high — every market-sizing case",
+        },
+        {
+            "name": "Market Size (Bottom-Up)",
+            "formula": "Market Size = # of Locations × Capacity per Location × Utilization × Price",
+            "detail": "Build up from individual units of supply. Use when the supply side is easier to estimate.",
+            "freq": "Very high — every market-sizing case",
+        },
+        {
+            "name": "Break-Even Volume",
+            "formula": "Break-Even Volume = Fixed Costs ÷ (Price − Variable Cost per Unit)",
+            "detail": "The number of units you need to sell to cover all fixed costs. Contribution margin = Price − VC.",
+            "freq": "High — profitability & new-venture cases",
+        },
+        {
+            "name": "Break-Even Time (Payback Period)",
+            "formula": "Payback Period = Initial Investment ÷ Annual Net Cash Flow",
+            "detail": "How many years until the investment pays for itself. Quick proxy when NPV isn't asked for.",
+            "freq": "High — investment & expansion cases",
+        },
+        {
+            "name": "ROI / Return on Investment",
+            "formula": "ROI = (Gain − Cost) ÷ Cost",
+            "detail": "Express as a percentage. Use to compare investment alternatives on an apples-to-apples basis.",
+            "freq": "High",
+        },
+        {
+            "name": "Growth Rate / CAGR",
+            "formula": "CAGR = (End Value ÷ Start Value)^(1/n) − 1",
+            "detail": "In interviews, often approximated: ~7% CAGR ≈ doubling every 10 years. Use the Rule of 72.",
+            "freq": "High",
+        },
+        {
+            "name": "Customer Lifetime Value (CLV)",
+            "formula": "CLV = Avg Revenue per Customer × Avg Customer Lifespan − Acquisition Cost",
+            "detail": "Simplified version; compare to Customer Acquisition Cost (CAC). Healthy businesses: CLV > 3× CAC.",
+            "freq": "Medium-High — pricing & growth strategy cases",
+        },
+        {
+            "name": "Market Share",
+            "formula": "Market Share = Company Revenue ÷ Total Market Revenue",
+            "detail": "Can also be measured in units. Useful for competitive positioning analysis.",
+            "freq": "Medium-High",
+        },
+        {
+            "name": "Capacity Utilization",
+            "formula": "Utilization = Actual Output ÷ Maximum Possible Output",
+            "detail": "Key in operations cases. Low utilization → fix demand or cut capacity; high utilization → bottleneck risk.",
+            "freq": "Medium — operations & supply-chain cases",
+        },
+        {
+            "name": "Gross / Operating / Net Margin",
+            "formula": "Margin = (Revenue − Relevant Costs) ÷ Revenue",
+            "detail": "Gross excludes SG&A; Operating excludes interest/tax; Net is bottom-line. Know typical ranges by industry.",
+            "freq": "Medium",
+        },
+        {
+            "name": "NPV (Simplified)",
+            "formula": "NPV = Σ [Cash Flow_t ÷ (1 + r)^t] − Initial Investment",
+            "detail": "Rarely need to compute fully in an interview, but know the concept. Positive NPV = value-creating.",
+            "freq": "Medium — investment cases",
+        },
+        {
+            "name": "Contribution Margin",
+            "formula": "Contribution Margin = Price − Variable Cost per Unit",
+            "detail": "What each unit contributes toward covering fixed costs. Foundation of break-even analysis.",
+            "freq": "Medium",
+        },
+        {
+            "name": "Productivity / Efficiency",
+            "formula": "Productivity = Output ÷ Input (e.g., Revenue per Employee)",
+            "detail": "Use to benchmark against competitors. Common inputs: labor hours, FTEs, capital deployed.",
+            "freq": "Medium — operations cases",
+        },
+        {
+            "name": "Price Elasticity of Demand",
+            "formula": "Elasticity = % Change in Quantity Demanded ÷ % Change in Price",
+            "detail": "|E| > 1 = elastic (price-sensitive); |E| < 1 = inelastic. Guides pricing decisions.",
+            "freq": "Low-Medium — pricing cases",
+        },
+    ]
+
+    for i, eq in enumerate(equations):
+        with st.expander(f"**{i + 1}. {eq['name']}** — _{eq['freq']}_", expanded=(i < 3)):
+            st.latex(eq["formula"].replace("×", r"\times").replace("÷", r"\div").replace("−", "-"))
+            st.markdown(eq["detail"])
+
+    st.info("**Tip:** In an interview, always state the equation *before* plugging in numbers — it shows structured thinking and lets the interviewer course-correct early.")
+
+
+def render_rules_of_thumb():
+    """Reference page listing numerical rules of thumb by frequency."""
+    st.markdown(
+        '<div class="main-header">'
+        "<h1>Rules of Thumb</h1>"
+        "<p>Quick numerical benchmarks that save you time in market-sizing and estimation cases</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    categories = [
+        {
+            "title": "Demographics & Population",
+            "icon": "👥",
+            "rules": [
+                ("US population", "~330 million", "Almost every US market-sizing case"),
+                ("World population", "~8 billion", "Global market-sizing cases"),
+                ("US households", "~130 million (~2.5 people/household)", "Consumer-product & housing cases"),
+                ("US life expectancy", "~78 years", "Healthcare, insurance, pension cases"),
+                ("US median age", "~38 years", "Demographic segmentation"),
+                ("US median household income", "~$75K", "Consumer spending & pricing cases"),
+                ("China / India population", "~1.4B each", "Emerging-market cases"),
+                ("EU population", "~450 million", "European market-sizing"),
+                ("Urban vs. rural (US)", "~83% urban", "Location-strategy cases"),
+            ],
+        },
+        {
+            "title": "Math Shortcuts",
+            "icon": "🔢",
+            "rules": [
+                ("Rule of 72", "72 ÷ growth rate % ≈ doubling time in years", "CAGR & compounding questions"),
+                ("Percentage shortcuts", "10% is easy; 5% = half of 10%; 1% = move decimal", "Every mental-math moment"),
+                ("Multiply by 5", "Multiply by 10, divide by 2", "Speeds up estimation arithmetic"),
+                ("Quick squaring", "Use (a+b)(a−b) = a²−b². e.g., 48² = 50×46 + 4 = 2304", "Rare but impressive"),
+                ("Seconds in a year", "~30 million (π × 10⁷)", "Throughput & capacity problems"),
+                ("Minutes in a day", "~1,440", "Operations & scheduling problems"),
+                ("Hours in a year", "~8,760 (~9,000 for easy math)", "Utilization & capacity"),
+            ],
+        },
+        {
+            "title": "Business & Economics",
+            "icon": "💼",
+            "rules": [
+                ("US GDP", "~$27 trillion", "Macro-level market-sizing"),
+                ("S&P 500 average return", "~10% nominal / ~7% real", "Investment-case benchmarks"),
+                ("Typical gross margin (product co.)", "40–60%", "Profitability sanity checks"),
+                ("Typical gross margin (software/SaaS)", "70–85%", "Tech industry cases"),
+                ("Typical net margin (healthy company)", "10–20%", "Profitability sanity checks"),
+                ("Restaurant net margin", "3–9%", "Restaurant & food-service cases"),
+                ("Grocery net margin", "1–3%", "Retail cases"),
+                ("CLV-to-CAC ratio (healthy)", "> 3:1", "Growth strategy & marketing spend"),
+                ("SaaS churn (good)", "< 5% annual for enterprise", "Subscription-business cases"),
+            ],
+        },
+        {
+            "title": "Consumer & Retail",
+            "icon": "🛒",
+            "rules": [
+                ("US cars on the road", "~280 million", "Automotive & transportation cases"),
+                ("US new-car sales/year", "~15–16 million", "Auto industry sizing"),
+                ("Average car lifespan", "~12 years / 200K miles", "Replacement-cycle calculations"),
+                ("US smartphone penetration", "~85%+ of adults", "Mobile/app market sizing"),
+                ("Average US consumer spending", "~$65K/year per household", "Consumer-market cases"),
+                ("US restaurant meals/week per person", "~4–5", "Food-service market sizing"),
+                ("US flights per year", "~900 million passenger trips", "Airline & travel cases"),
+            ],
+        },
+        {
+            "title": "Operations & Infrastructure",
+            "icon": "🏗️",
+            "rules": [
+                ("US airports (commercial)", "~500 (top 30 handle ~70% of traffic)", "Aviation & logistics cases"),
+                ("US hospitals", "~6,000", "Healthcare operations cases"),
+                ("US gas stations", "~150,000", "Energy & convenience-retail cases"),
+                ("US Starbucks locations", "~16,000", "Retail density benchmarks"),
+                ("US McDonald's locations", "~13,500", "QSR benchmarks"),
+                ("US Walmart stores", "~4,700", "Big-box retail benchmarks"),
+                ("Semi truck capacity", "~45,000 lbs / ~20 tons", "Logistics & freight cases"),
+                ("Standard shipping container", "~20 or 40 ft, ~50K lbs max", "Supply-chain cases"),
+            ],
+        },
+    ]
+
+    for cat in categories:
+        st.subheader(f"{cat['icon']}  {cat['title']}")
+        for rule_name, value, context in cat["rules"]:
+            st.markdown(f"- **{rule_name}:** {value} — _{context}_")
+        st.markdown("")
+
+    st.info("**Tip:** You don't need to memorize every number — focus on the top 10–15 you reach for most often. In an interview, state your assumption explicitly: *\"I'll assume US population of roughly 330 million\"* — the interviewer will redirect if needed.")
+
+
 def render_mental_math():
     """Mental math drill page — timed problems across five categories."""
     st.markdown(
@@ -1901,6 +2110,14 @@ def render_sidebar():
             st.session_state.page = "mental_math"
             st.rerun()
 
+        if st.button("Equations Cheat Sheet", use_container_width=True):
+            st.session_state.page = "equations"
+            st.rerun()
+
+        if st.button("Rules of Thumb", use_container_width=True):
+            st.session_state.page = "rules_of_thumb"
+            st.rerun()
+
         # Coach & difficulty settings
         st.divider()
         st.subheader("Settings")
@@ -2004,6 +2221,10 @@ def main():
         render_portfolio()
     elif st.session_state.page == "mental_math":
         render_mental_math()
+    elif st.session_state.page == "equations":
+        render_equations()
+    elif st.session_state.page == "rules_of_thumb":
+        render_rules_of_thumb()
     elif st.session_state.page == "session" and "session" in st.session_state:
         _render_session_chrome()
         # Check if we need to show post-submission feedback before rendering the next stage
