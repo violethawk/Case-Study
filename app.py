@@ -2102,20 +2102,20 @@ def render_sidebar():
                 _full_reset()
                 st.rerun()
 
-        if st.button("Portfolio Analytics", use_container_width=True):
-            st.session_state.page = "portfolio"
-            st.rerun()
-
-        if st.button("Mental Math Drills", use_container_width=True):
-            st.session_state.page = "mental_math"
+        if st.button("Rules of Thumb", use_container_width=True):
+            st.session_state.page = "rules_of_thumb"
             st.rerun()
 
         if st.button("Equations Cheat Sheet", use_container_width=True):
             st.session_state.page = "equations"
             st.rerun()
 
-        if st.button("Rules of Thumb", use_container_width=True):
-            st.session_state.page = "rules_of_thumb"
+        if st.button("Mental Math Drills", use_container_width=True):
+            st.session_state.page = "mental_math"
+            st.rerun()
+
+        if st.button("Portfolio Analytics", use_container_width=True):
+            st.session_state.page = "portfolio"
             st.rerun()
 
         # Coach & difficulty settings
