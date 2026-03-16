@@ -208,7 +208,7 @@ STRATEGY_STAGES: tuple[StageSpec, ...] = (
 )
 
 MARKET_SIZING_STAGES: tuple[StageSpec, ...] = (
-    _restatement, _clarifying_questions, _framework, _structure,
+    _restatement, _clarifying_questions, _structure,
     _assumptions, _calculation, _sanity_check, _conclusion,
 )
 
