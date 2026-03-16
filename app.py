@@ -1597,6 +1597,18 @@ def render_equations():
             "freq": "Medium — operations cases",
         },
         {
+            "name": "Revenue Growth Decomposition",
+            "formula": "Revenue Growth = Volume Growth + Price Growth + Mix Shift",
+            "detail": "Breaks top-line growth into its drivers. Mix shift = change in proportion of high- vs low-priced products. Essential for diagnosing 'why did revenue change?' questions.",
+            "freq": "Medium — growth & profitability cases",
+        },
+        {
+            "name": "CAC Payback Period",
+            "formula": "CAC Payback = Customer Acquisition Cost ÷ Monthly Contribution Margin per Customer",
+            "detail": "Months to recoup the cost of acquiring a customer. Healthy SaaS: < 12 months. Pair with CLV for a full customer economics picture.",
+            "freq": "Medium — growth strategy & unit economics cases",
+        },
+        {
             "name": "Price Elasticity of Demand",
             "formula": "Elasticity = % Change in Quantity Demanded ÷ % Change in Price",
             "detail": "|E| > 1 = elastic (price-sensitive); |E| < 1 = inelastic. Guides pricing decisions.",
@@ -1622,86 +1634,96 @@ def render_rules_of_thumb():
         unsafe_allow_html=True,
     )
 
+    # Rules: (name, precise_value, quick_math_value_or_None, context)
     categories = [
         {
             "title": "Demographics & Population",
             "icon": "👥",
             "rules": [
-                ("US population", "~330 million", "Almost every US market-sizing case"),
-                ("World population", "~8 billion", "Global market-sizing cases"),
-                ("US households", "~130 million (~2.5 people/household)", "Consumer-product & housing cases"),
-                ("US life expectancy", "~78 years", "Healthcare, insurance, pension cases"),
-                ("US median age", "~38 years", "Demographic segmentation"),
-                ("US median household income", "~$75K", "Consumer spending & pricing cases"),
-                ("China / India population", "~1.4B each", "Emerging-market cases"),
-                ("EU population", "~450 million", "European market-sizing"),
-                ("Urban vs. rural (US)", "~83% urban", "Location-strategy cases"),
+                ("US population", "~330 million", "300M", "Almost every US market-sizing case"),
+                ("World population", "~8 billion", "8B", "Global market-sizing cases"),
+                ("US households", "~130 million (~2.5 people/household)", "130M (3 per HH)", "Consumer-product & housing cases"),
+                ("US life expectancy", "~78 years", "80 yrs", "Healthcare, insurance, pension cases"),
+                ("US median age", "~38 years", "40", "Demographic segmentation"),
+                ("US median household income", "~$75K", "$75K", "Consumer spending & pricing cases"),
+                ("China / India population", "~1.4B each", "1.5B each", "Emerging-market cases"),
+                ("EU population", "~450 million", "500M", "European market-sizing"),
+                ("Urban vs. rural (US)", "~83% urban", "80%", "Location-strategy cases"),
             ],
         },
         {
             "title": "Math Shortcuts",
             "icon": "🔢",
             "rules": [
-                ("Rule of 72", "72 ÷ growth rate % ≈ doubling time in years", "CAGR & compounding questions"),
-                ("Percentage shortcuts", "10% is easy; 5% = half of 10%; 1% = move decimal", "Every mental-math moment"),
-                ("Multiply by 5", "Multiply by 10, divide by 2", "Speeds up estimation arithmetic"),
-                ("Quick squaring", "Use (a+b)(a−b) = a²−b². e.g., 48² = 50×46 + 4 = 2304", "Rare but impressive"),
-                ("Seconds in a year", "~30 million (π × 10⁷)", "Throughput & capacity problems"),
-                ("Minutes in a day", "~1,440", "Operations & scheduling problems"),
-                ("Hours in a year", "~8,760 (~9,000 for easy math)", "Utilization & capacity"),
+                ("Rule of 72", "72 ÷ growth rate % ≈ doubling time in years", None, "CAGR & compounding questions"),
+                ("Percentage shortcuts", "10% is easy; 5% = half of 10%; 1% = move decimal", None, "Every mental-math moment"),
+                ("Multiply by 5", "Multiply by 10, divide by 2", None, "Speeds up estimation arithmetic"),
+                ("Quick squaring", "Use (a+b)(a−b) = a²−b². e.g., 48² = 50×46 + 4 = 2304", None, "Rare but impressive"),
+                ("Seconds in a year", "~30 million (π × 10⁷)", "30M", "Throughput & capacity problems"),
+                ("Minutes in a day", "~1,440", "1,500", "Operations & scheduling problems"),
+                ("Hours in a year", "~8,760 (~9,000 for easy math)", "9,000", "Utilization & capacity"),
             ],
         },
         {
             "title": "Business & Economics",
             "icon": "💼",
             "rules": [
-                ("US GDP", "~$27 trillion", "Macro-level market-sizing"),
-                ("S&P 500 average return", "~10% nominal / ~7% real", "Investment-case benchmarks"),
-                ("Typical gross margin (product co.)", "40–60%", "Profitability sanity checks"),
-                ("Typical gross margin (software/SaaS)", "70–85%", "Tech industry cases"),
-                ("Typical net margin (healthy company)", "10–20%", "Profitability sanity checks"),
-                ("Restaurant net margin", "3–9%", "Restaurant & food-service cases"),
-                ("Grocery net margin", "1–3%", "Retail cases"),
-                ("CLV-to-CAC ratio (healthy)", "> 3:1", "Growth strategy & marketing spend"),
-                ("SaaS churn (good)", "< 5% annual for enterprise", "Subscription-business cases"),
+                ("US GDP", "~$27 trillion", "$25T", "Macro-level market-sizing"),
+                ("S&P 500 average return", "~10% nominal / ~7% real", "10%", "Investment-case benchmarks"),
+                ("Typical gross margin (product co.)", "40–60%", "50%", "Profitability sanity checks"),
+                ("Typical gross margin (software/SaaS)", "70–85%", "80%", "Tech industry cases"),
+                ("Typical net margin (healthy company)", "10–20%", "15%", "Profitability sanity checks"),
+                ("Restaurant net margin", "3–9%", "5%", "Restaurant & food-service cases"),
+                ("Grocery net margin", "1–3%", "2%", "Retail cases"),
+                ("CLV-to-CAC ratio (healthy)", "> 3:1", "3:1", "Growth strategy & marketing spend"),
+                ("SaaS churn (good)", "< 5% annual for enterprise", "5%", "Subscription-business cases"),
             ],
         },
         {
             "title": "Consumer & Retail",
             "icon": "🛒",
             "rules": [
-                ("US cars on the road", "~280 million", "Automotive & transportation cases"),
-                ("US new-car sales/year", "~15–16 million", "Auto industry sizing"),
-                ("Average car lifespan", "~12 years / 200K miles", "Replacement-cycle calculations"),
-                ("US smartphone penetration", "~85%+ of adults", "Mobile/app market sizing"),
-                ("Average US consumer spending", "~$65K/year per household", "Consumer-market cases"),
-                ("US restaurant meals/week per person", "~4–5", "Food-service market sizing"),
-                ("US flights per year", "~900 million passenger trips", "Airline & travel cases"),
+                ("US cars on the road", "~280 million", "300M", "Automotive & transportation cases"),
+                ("US new-car sales/year", "~15–16 million", "15M", "Auto industry sizing"),
+                ("Average car lifespan", "~12 years / 200K miles", "10 yrs", "Replacement-cycle calculations"),
+                ("US smartphone penetration", "~85%+ of adults", "85%", "Mobile/app market sizing"),
+                ("Average US consumer spending", "~$65K/year per household", "$65K", "Consumer-market cases"),
+                ("US restaurant meals/week per person", "~4–5", "5", "Food-service market sizing"),
+                ("US flights per year", "~900 million passenger trips", "1B", "Airline & travel cases"),
             ],
         },
         {
             "title": "Operations & Infrastructure",
             "icon": "🏗️",
             "rules": [
-                ("US airports (commercial)", "~500 (top 30 handle ~70% of traffic)", "Aviation & logistics cases"),
-                ("US hospitals", "~6,000", "Healthcare operations cases"),
-                ("US gas stations", "~150,000", "Energy & convenience-retail cases"),
-                ("US Starbucks locations", "~16,000", "Retail density benchmarks"),
-                ("US McDonald's locations", "~13,500", "QSR benchmarks"),
-                ("US Walmart stores", "~4,700", "Big-box retail benchmarks"),
-                ("Semi truck capacity", "~45,000 lbs / ~20 tons", "Logistics & freight cases"),
-                ("Standard shipping container", "~20 or 40 ft, ~50K lbs max", "Supply-chain cases"),
+                ("US airports (commercial)", "~500 (top 30 handle ~70% of traffic)", "500", "Aviation & logistics cases"),
+                ("US hospitals", "~6,000", "6,000", "Healthcare operations cases"),
+                ("US gas stations", "~150,000", "150K", "Energy & convenience-retail cases"),
+                ("US Starbucks locations", "~16,000", "15K", "Retail density benchmarks"),
+                ("US McDonald's locations", "~13,500", "15K", "QSR benchmarks"),
+                ("US Walmart stores", "~4,700", "5,000", "Big-box retail benchmarks"),
+                ("Semi truck capacity", "~45,000 lbs / ~20 tons", "20 tons", "Logistics & freight cases"),
+                ("Standard shipping container", "~20 or 40 ft, ~50K lbs max", "50K lbs", "Supply-chain cases"),
             ],
         },
     ]
 
+    # Toggle for showing quick-math approximations
+    show_quick = st.toggle("Show **Quick Math** approximations", value=True,
+                           help="Rounded values optimized for fast mental arithmetic")
+
     for cat in categories:
         st.subheader(f"{cat['icon']}  {cat['title']}")
-        for rule_name, value, context in cat["rules"]:
-            st.markdown(f"- **{rule_name}:** {value} — _{context}_")
+        for rule_name, value, quick, context in cat["rules"]:
+            if show_quick and quick:
+                st.markdown(
+                    f"- **{rule_name}:** {value} · Quick math: **{quick}** — _{context}_"
+                )
+            else:
+                st.markdown(f"- **{rule_name}:** {value} — _{context}_")
         st.markdown("")
 
-    st.info("**Tip:** You don't need to memorize every number — focus on the top 10–15 you reach for most often. In an interview, state your assumption explicitly: *\"I'll assume US population of roughly 330 million\"* — the interviewer will redirect if needed.")
+    st.info("**Tip:** You don't need to memorize every number — focus on the top 10–15 you reach for most often. The **Quick Math** values are deliberately rounded to make arithmetic easier under pressure. In an interview, state your assumption explicitly: *\"I'll use 300 million for the US\"* — the interviewer will redirect if needed.")
 
 
 def render_mental_math():
