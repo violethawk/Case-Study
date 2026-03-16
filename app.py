@@ -346,6 +346,8 @@ def _escape_markdown(text: str) -> str:
     - ``$`` triggers LaTeX math rendering
     - ``<`` / ``>`` are parsed as HTML tags
     """
+    if not isinstance(text, str):
+        text = " ".join(str(v) for v in text) if isinstance(text, list) else str(text)
     return text.replace("$", "&#36;").replace("<", "&lt;").replace(">", "&gt;")
 
 

@@ -19,7 +19,27 @@ import os
 from dataclasses import dataclass
 from collections.abc import Iterable
 
-_GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+def _get_gemini_key() -> str:
+    """Return the Gemini API key from env var or Streamlit secrets."""
+    key = os.environ.get("GEMINI_API_KEY", "")
+    if not key:
+        try:
+            import streamlit as st
+            key = st.secrets["GEMINI_API_KEY"]
+        except (KeyError, FileNotFoundError, Exception):
+            pass
+    return key
+
+
+def _gemini_key() -> str:
+    """Lazy accessor — re-checks on every call so Streamlit secrets are available."""
+    global _GEMINI_API_KEY
+    if not _GEMINI_API_KEY:
+        _GEMINI_API_KEY = _get_gemini_key()
+    return _GEMINI_API_KEY
+
+
+_GEMINI_API_KEY = ""
 
 # Stage-specific evaluation criteria used in the Gemini prompt.
 STAGE_CRITERIA: dict[str, str] = {
@@ -272,7 +292,7 @@ class CoachFeedback:
 
 def is_ai_enabled() -> bool:
     """Return True if the Gemini API key is configured."""
-    return bool(_GEMINI_API_KEY)
+    return bool(_gemini_key())
 
 
 def provide_feedback(
@@ -306,7 +326,7 @@ def provide_feedback(
     else:
         texts = list(content)
 
-    if _GEMINI_API_KEY:
+    if _gemini_key():
         try:
             return _gemini_feedback(stage, texts, case_context, difficulty)
         except Exception:
@@ -362,7 +382,7 @@ def generate_data_reveal(
                 reveal_type=r.get("type", "data") if isinstance(r, dict) else "data",
             )
 
-    if _GEMINI_API_KEY:
+    if _gemini_key():
         try:
             # At advanced, instruct Gemini to contradict hypothesis
             extra = ""
@@ -404,7 +424,7 @@ def _gemini_feedback(
     """Call Gemini 3.1 Flash Lite and parse the structured response."""
     from google import genai
 
-    client = genai.Client(api_key=_GEMINI_API_KEY)
+    client = genai.Client(api_key=_gemini_key())
 
     # Resolve stage key for criteria lookup
     key_aliases = {"analyze": "analyses", "update": "updates", "conclude": "conclusion"}
@@ -430,10 +450,16 @@ def _gemini_feedback(
     raw = _strip_markdown_fences(response.text.strip())
 
     data = json.loads(raw)
+
+    def _as_str(val) -> str:
+        if isinstance(val, list):
+            return " ".join(str(v) for v in val)
+        return str(val) if val else ""
+
     return CoachFeedback(
-        strengths=data.get("strengths", ""),
-        gaps=data.get("gaps", ""),
-        questions=data.get("questions", ""),
+        strengths=_as_str(data.get("strengths", "")),
+        gaps=_as_str(data.get("gaps", "")),
+        questions=_as_str(data.get("questions", "")),
         passed=bool(data.get("passed", True)),
     )
 
@@ -444,7 +470,7 @@ def _gemini_data_reveal(
     """Call Gemini to generate an interviewer data reveal."""
     from google import genai
 
-    client = genai.Client(api_key=_GEMINI_API_KEY)
+    client = genai.Client(api_key=_gemini_key())
 
     reveal_guidance = DATA_REVEAL_STAGES.get(stage, "")
     user_input = "\n".join(texts) if len(texts) > 1 else texts[0]
@@ -572,7 +598,7 @@ def answer_clarifying_questions(
     if not questions:
         return []
 
-    if _GEMINI_API_KEY:
+    if _gemini_key():
         try:
             return _gemini_answer_questions(questions, case_context)
         except Exception:
@@ -590,7 +616,7 @@ def _gemini_answer_questions(questions: list[str], case_context: str) -> list[st
     """Call Gemini to answer clarifying questions."""
     from google import genai
 
-    client = genai.Client(api_key=_GEMINI_API_KEY)
+    client = genai.Client(api_key=_gemini_key())
     q_text = "\n".join(f"{i+1}. {q}" for i, q in enumerate(questions))
     prompt = (
         f"{_CLARIFYING_ANSWER_PROMPT}\n\n"
@@ -662,7 +688,7 @@ def generate_probe_question(
     else:
         texts = list(content)
 
-    if _GEMINI_API_KEY:
+    if _gemini_key():
         try:
             return _gemini_probe(stage, texts, case_context)
         except Exception:
@@ -675,7 +701,7 @@ def _gemini_probe(stage: str, texts: list[str], case_context: str) -> str:
     """Call Gemini to generate a probe question."""
     from google import genai
 
-    client = genai.Client(api_key=_GEMINI_API_KEY)
+    client = genai.Client(api_key=_gemini_key())
     user_input = "\n".join(texts) if len(texts) > 1 else texts[0]
     prompt = (
         f"{_PROBE_PROMPT}\n\n"
